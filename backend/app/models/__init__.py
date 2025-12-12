@@ -9,6 +9,16 @@ from .whistleblower import Whistleblower
 from .supplier import Supplier
 from .lookup import ConfigEntry
 
+# Import MRV models
+from app.mrv.models import (
+    MRVSample,
+    MRVTest,
+    Lab,
+    ChainStep,
+    MRVEventLog,
+    MRVSampleStatus,
+)
+
 __all__ = [
     "User",
     "Role",
@@ -20,4 +30,11 @@ __all__ = [
     "Whistleblower",
     "Supplier",
     "ConfigEntry",
+    # MRV models
+    "MRVSample",
+    "MRVTest",
+    "Lab",
+    "ChainStep",
+    "MRVEventLog",
+    "MRVSampleStatus",
 ]

@@ -36,5 +36,6 @@ class Project(Base):
     material_tokens: Mapped[list["MaterialToken"]] = relationship("MaterialToken", back_populates="project")
     sensor_readings: Mapped[list["SensorReading"]] = relationship("SensorReading", back_populates="project")
     mrv_reports: Mapped[list["MRVReport"]] = relationship("MRVReport", back_populates="project")
+    mrv_samples: Mapped[list["MRVSample"]] = relationship("MRVSample", back_populates="project")
     anomalies: Mapped[list["AnomalyAlert"]] = relationship("AnomalyAlert", back_populates="project")
     whistleblowers: Mapped[list["Whistleblower"]] = relationship("Whistleblower", back_populates="project")

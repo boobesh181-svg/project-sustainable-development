@@ -7,6 +7,20 @@ from alembic import context
 
 from app.db.base import Base
 
+# Import all models to ensure they're registered with Base.metadata
+from app.models.user import User
+from app.models.role import Role
+from app.models.project import Project
+from app.models.material_token import MaterialToken
+from app.models.sensor_reading import SensorReading
+from app.models.mrv_report import MRVReport
+from app.models.anomaly_alert import AnomalyAlert
+from app.models.whistleblower import Whistleblower
+from app.models.supplier import Supplier
+from app.mrv.models import (
+    MRVSample, MRVTest, ChainStep, MRVEventLog, Lab
+)
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config

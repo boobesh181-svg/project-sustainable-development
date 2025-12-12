@@ -20,3 +20,17 @@ class UserRead(UserBase):
 
     class Config:
         from_attributes = True
+
+
+class UserResponse(BaseModel):
+    """User response schema for API endpoints."""
+    id: str
+    email: EmailStr
+    full_name: str | None
+    is_active: bool
+    role: str  # depends on User.role.name
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    class Config:
+        from_attributes = True
