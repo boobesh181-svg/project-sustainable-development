@@ -1,0 +1,42 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:14
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: windsrf
+      POSTGRES_PASSWORD: windsrf_pass
+      POSTGRES_DB: windsurf
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      ENV: docker
+      DATABASE_URL: postgresql+asyncpg://windsrf:windsrf_pass@db:5432/windsurf
+      SECRET_KEY: change-me-in-env
+      ACCESS_TOKEN_EXPIRE_MINUTES: 15
+      REFRESH_TOKEN_EXPIRE_DAYS: 30
+      UPLOAD_ROOT: /app/uploads
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+
+  adminer:
+    image: adminer:4
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:
