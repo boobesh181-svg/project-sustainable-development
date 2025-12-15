@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     or a local .env file (see .env.example).
     """
 
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "extra": "ignore"
+    }
+
     ENV: str = Field("local", description="Runtime environment name")
 
     DATABASE_URL: str
@@ -31,10 +37,6 @@ class Settings(BaseSettings):
 
     # Uploads
     UPLOAD_ROOT: str = "./uploads"
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
 
 
 # Default carbon factor mappings; can be overridden via DB or config table.
