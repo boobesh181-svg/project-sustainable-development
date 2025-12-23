@@ -9,6 +9,7 @@ from sqlalchemy import (
     Boolean, DateTime, Enum as SAEnum, ForeignKey, 
     Index, JSON, Numeric, String, Text, Float
 )
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -30,8 +31,8 @@ class MRVSample(Base):
     sample_id: Mapped[str] = mapped_column(
         String(50), primary_key=True, default=lambda: str(uuid.uuid4())[:8]
     )
-    project_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("project.id"), nullable=False  # UUID as string for SQLite compatibility
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("project.id"), nullable=False
     )
     collected_by: Mapped[str] = mapped_column(String(255), nullable=False)
     collected_at: Mapped[datetime] = mapped_column(
@@ -265,10 +266,8 @@ class CarbonLedger(Base):
     
     __tablename__ = "carbon_ledger"
     
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    project_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("project.id"), nullable=False
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("project.id"), nullable=False)
     sample_id: Mapped[str] = mapped_column(
         String(50), ForeignKey("mrv_sample.sample_id"), nullable=False
     )
@@ -303,10 +302,8 @@ class CarbonCreditIssuance(Base):
     
     __tablename__ = "carbon_credit_issuance"
     
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    project_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("project.id"), nullable=False
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("project.id"), nullable=False)
     credits_t: Mapped[float] = mapped_column(Float, nullable=False)  # Credits in tonnes CO2
     value_usd: Mapped[float] = mapped_column(Float, nullable=False)  # Value in USD
     credit_rate_usd_per_ton: Mapped[float] = mapped_column(Float, nullable=False)

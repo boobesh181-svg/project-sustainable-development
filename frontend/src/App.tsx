@@ -41,7 +41,7 @@ export const App: React.FC = () => {
         <h1 className="text-lg font-semibold tracking-tight">
           Windsurf Sustainable City Dashboard
         </h1>
-        <span className="text-xs text-slate-400">Backend: http://localhost:8000</span>
+        <span className="text-xs text-slate-400">Backend: /api (Vite proxy)</span>
       </header>
 
       <main className="flex-1 p-6">

@@ -1,22 +1,18 @@
 {
-  "name": "windsurf-frontend",
-  "version": "0.0.1",
+  "name": "mrv-dashboard",
+  "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint src --ext ts,tsx --max-warnings=0"
+    "lint": "eslint src --ext .jsx"
   },
   "dependencies": {
-    "@types/axios": "^0.9.36",
-    "axios": "^1.6.0",
-    "date-fns": "^2.30.0",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0",
-    "react-hot-toast": "^2.4.0",
-    "react-router-dom": "^6.8.0",
-    "recharts": "^2.10.0"
+    "@vitejs/plugin-react": "^5.1.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@types/react": "^18.3.0",

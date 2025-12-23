@@ -1,29 +1,40 @@
 from logging.config import fileConfig
+import os
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
+from dotenv import load_dotenv
+from sqlalchemy import engine_from_config, pool
 
 from alembic import context
 
 from app.db.base import Base
 
-# Import all models to ensure they're registered with Base.metadata
-from app.models.user import User
-from app.models.role import Role
-from app.models.project import Project
-from app.models.material_token import MaterialToken
-from app.models.sensor_reading import SensorReading
-from app.models.mrv_report import MRVReport
-from app.models.anomaly_alert import AnomalyAlert
-from app.models.whistleblower import Whistleblower
-from app.models.supplier import Supplier
-from app.mrv.models import (
-    MRVSample, MRVTest, ChainStep, MRVEventLog, Lab
-)
+# Ensure models are registered on Base.metadata
+import app.models  # noqa: F401
+import app.mrv.models  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+
+
+def _alembic_db_url() -> str | None:
+    """Return a sync SQLAlchemy URL for Alembic.
+
+    The app uses async engines (postgresql+asyncpg). Alembic migrations run via
+    a sync engine (psycopg2). We convert automatically.
+    """
+    load_dotenv()  # loads backend/.env when running from backend/
+    url = os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+    if not url:
+        return None
+    if "+asyncpg" in url:
+        return url.replace("+asyncpg", "+psycopg2")
+    return url
+
+
+db_url = _alembic_db_url()
+if db_url:
+    config.set_main_option("sqlalchemy.url", db_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

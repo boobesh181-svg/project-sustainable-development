@@ -5,11 +5,11 @@ services:
     image: postgres:14
     restart: unless-stopped
     environment:
-      POSTGRES_USER: windsrf
-      POSTGRES_PASSWORD: windsrf_pass
+      POSTGRES_USER: windsurf
+      POSTGRES_PASSWORD: windsurf_pass
       POSTGRES_DB: windsurf
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
@@ -20,11 +20,12 @@ services:
       - db
     environment:
       ENV: docker
-      DATABASE_URL: postgresql+asyncpg://windsrf:windsrf_pass@db:5432/windsurf
+      DATABASE_URL: postgresql+asyncpg://windsurf:windsurf_pass@db:5432/windsurf
       SECRET_KEY: change-me-in-env
       ACCESS_TOKEN_EXPIRE_MINUTES: 15
       REFRESH_TOKEN_EXPIRE_DAYS: 30
       UPLOAD_ROOT: /app/uploads
+      CORS_ORIGINS: '["http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:3000"]'
     volumes:
       - .:/app
     ports:

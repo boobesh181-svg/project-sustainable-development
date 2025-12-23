@@ -1,6 +1,19 @@
 version: '3.9'
 
 services:
+  # PostgreSQL database (MANDATORY)
+  postgres:
+    image: postgres:14-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: windsurf
+      POSTGRES_PASSWORD: windsurf_pass
+      POSTGRES_DB: windsurf
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   # Backend API service
   backend:
     build: 
@@ -9,12 +22,14 @@ services:
     restart: unless-stopped
     environment:
       ENV: docker
-      DATABASE_URL: sqlite:///./dev.db
+      DATABASE_URL: postgresql+asyncpg://windsurf:windsurf_pass@postgres:5432/windsurf
       SECRET_KEY: change-me-in-production-secret-key-12345
       ACCESS_TOKEN_EXPIRE_MINUTES: 15
       REFRESH_TOKEN_EXPIRE_DAYS: 30
       UPLOAD_ROOT: /app/uploads
-      CORS_ORIGINS: '["http://localhost:3000", "http://127.0.0.1:3000"]'
+      CORS_ORIGINS: '["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173"]'
+    depends_on:
+      - postgres
     volumes:
       - ./backend:/app
       - backend_uploads:/app/uploads
@@ -51,20 +66,6 @@ services:
       retries: 3
       start_period: 40s
 
-  # PostgreSQL database (optional - for production)
-  postgres:
-    image: postgres:14-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: windsurf
-      POSTGRES_PASSWORD: windsurf_pass
-      POSTGRES_DB: windsurf
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    profiles:
-      - postgres  # Only start with --profile postgres
 
   # Redis for caching and sessions (optional)
   redis:
@@ -102,7 +103,7 @@ services:
       - "8080:8080"
     depends_on:
       - postgres
-    profiles:
+    depends_on:
       - postgres
 
 volumes:

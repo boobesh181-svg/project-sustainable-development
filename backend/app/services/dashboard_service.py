@@ -329,3 +329,139 @@ async def get_dashboard_charts(db: AsyncSession) -> DashboardCharts:
         supplier_scatter=supplier_scatter,
         co2_cost_scatter=co2_cost_scatter,
     )
+
+
+async def get_comprehensive_kpis(db: AsyncSession) -> dict:
+    """
+    Comprehensive KPI aggregation for national-scale dashboards.
+    
+    Provides:
+    - Core metrics: projects, tokens, deliveries, MRV reports, CO₂
+    - Integrity metrics: verification rates, approval rates, high-risk anomalies
+    - Scalable to national datasets (optimized aggregations)
+    
+    This is the single source of truth for dashboard consumption.
+    Frontend performs NO business logic - all aggregations done server-side.
+    """
+    from app.models.delivery_verification import DeliveryVerification
+    from app.models.mrv_report import MRVStatus
+
+    # CORE KPIs
+    
+    # Total projects
+    total_projects_q = await db.execute(select(func.count()).select_from(Project))
+    total_projects = int(total_projects_q.scalar_one() or 0)
+
+    # Material tokens
+    total_tokens_q = await db.execute(select(func.count()).select_from(MaterialToken))
+    total_tokens = int(total_tokens_q.scalar_one() or 0)
+
+    redeemed_tokens_q = await db.execute(
+        select(func.count()).select_from(MaterialToken).where(MaterialToken.redeemed.is_(True))
+    )
+    redeemed_tokens = int(redeemed_tokens_q.scalar_one() or 0)
+
+    # Deliveries verified
+    verified_deliveries_q = await db.execute(
+        select(func.count()).select_from(DeliveryVerification)
+        .where(DeliveryVerification.is_verified.is_(True))
+    )
+    verified_deliveries = int(verified_deliveries_q.scalar_one() or 0)
+
+    # MRV reports (by status)
+    mrv_total_q = await db.execute(select(func.count()).select_from(MRVReport))
+    mrv_total = int(mrv_total_q.scalar_one() or 0)
+
+    mrv_draft_q = await db.execute(
+        select(func.count()).select_from(MRVReport).where(MRVReport.status == MRVStatus.DRAFT)
+    )
+    mrv_draft = int(mrv_draft_q.scalar_one() or 0)
+
+    mrv_submitted_q = await db.execute(
+        select(func.count()).select_from(MRVReport).where(MRVReport.status == MRVStatus.SUBMITTED)
+    )
+    mrv_submitted = int(mrv_submitted_q.scalar_one() or 0)
+
+    mrv_verified_q = await db.execute(
+        select(func.count()).select_from(MRVReport).where(MRVReport.status == MRVStatus.VERIFIED)
+    )
+    mrv_verified = int(mrv_verified_q.scalar_one() or 0)
+
+    mrv_approved_q = await db.execute(
+        select(func.count()).select_from(MRVReport).where(MRVReport.status == MRVStatus.APPROVED)
+    )
+    mrv_approved = int(mrv_approved_q.scalar_one() or 0)
+
+    mrv_locked_q = await db.execute(
+        select(func.count()).select_from(MRVReport).where(MRVReport.status == MRVStatus.LOCKED)
+    )
+    mrv_locked = int(mrv_locked_q.scalar_one() or 0)
+
+    # Total CO₂ reported (only APPROVED + LOCKED)
+    approved_locked_statuses = [MRVStatus.APPROVED, MRVStatus.LOCKED]
+    total_co2_q = await db.execute(
+        select(func.coalesce(func.sum(MRVReport.total_co2e), 0))
+        .where(MRVReport.status.in_(approved_locked_statuses))
+    )
+    total_co2_tco2e = float(total_co2_q.scalar_one() or 0)
+
+    # Anomalies (by severity)
+    from app.models.anomaly_alert import AnomalySeverity
+    
+    anomalies_total_q = await db.execute(select(func.count()).select_from(AnomalyAlert))
+    anomalies_total = int(anomalies_total_q.scalar_one() or 0)
+
+    anomalies_high_q = await db.execute(
+        select(func.count()).select_from(AnomalyAlert).where(AnomalyAlert.severity == AnomalySeverity.HIGH)
+    )
+    anomalies_high = int(anomalies_high_q.scalar_one() or 0)
+
+    anomalies_medium_q = await db.execute(
+        select(func.count()).select_from(AnomalyAlert).where(AnomalyAlert.severity == AnomalySeverity.MEDIUM)
+    )
+    anomalies_medium = int(anomalies_medium_q.scalar_one() or 0)
+
+    anomalies_low_q = await db.execute(
+        select(func.count()).select_from(AnomalyAlert).where(AnomalyAlert.severity == AnomalySeverity.LOW)
+    )
+    anomalies_low = int(anomalies_low_q.scalar_one() or 0)
+
+    # INTEGRITY KPIs
+
+    # % tokens verified (delivery verification rate)
+    verified_percent = round((verified_deliveries / redeemed_tokens) * 100, 2) if redeemed_tokens > 0 else 0.0
+
+    # % MRV approved (approval rate)
+    mrv_approval_percent = round((mrv_approved / mrv_total) * 100, 2) if mrv_total > 0 else 0.0
+
+    # High-risk anomaly count
+    high_risk_count = anomalies_high
+
+    return {
+        "projects": total_projects,
+        "tokens": {
+            "issued": total_tokens,
+            "redeemed": redeemed_tokens,
+            "verified_percent": verified_percent,
+        },
+        "deliveries_verified": verified_deliveries,
+        "mrv": {
+            "total": mrv_total,
+            "draft": mrv_draft,
+            "submitted": mrv_submitted,
+            "verified": mrv_verified,
+            "approved": mrv_approved,
+            "locked": mrv_locked,
+            "approval_percent": mrv_approval_percent,
+        },
+        "co2": {
+            "total_reported_tco2e": round(total_co2_tco2e, 2),
+        },
+        "anomalies": {
+            "total": anomalies_total,
+            "high": anomalies_high,
+            "medium": anomalies_medium,
+            "low": anomalies_low,
+            "high_risk_count": high_risk_count,
+        },
+    }

@@ -1,6 +1,9 @@
 import axios, { AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
+import { resolveApiBase } from '../api/resolveApiBase';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+// Default to Vite dev-server proxy (relative URLs) to avoid CORS issues.
+// Can be overridden via VITE_API_BASE_URL or legacy VITE_API_URL.
+const API_BASE = resolveApiBase();
 
 // Create axios instance with default config
 export const apiClient = axios.create({
