@@ -1,11 +1,13 @@
 import uuid
 import hashlib
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy import (
     CheckConstraint,
     Boolean,
     DateTime,
+    ForeignKey,
     Numeric,
     String,
     UniqueConstraint,
@@ -61,6 +63,9 @@ class EmissionFactor(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
     created_by: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id"), nullable=True
+    )
 
     __table_args__ = (
         UniqueConstraint("material_code", "version", name="uq_material_code_version"),
@@ -71,12 +76,14 @@ class EmissionFactor(Base):
 
     def generate_hash(self) -> str:
         """Generate deterministic SHA256 hash to lock factor permanently."""
-        raw = f"{self.material_code}|{self.version}|{self.co2e_per_unit}|{self.unit}|{self.valid_from.isoformat()}"
+        co2e_str = str(Decimal(str(self.co2e_per_unit)).quantize(Decimal("0.000001")))
+        raw = f"{self.material_code}|{self.version}|{co2e_str}|{self.unit}|{self.valid_from.isoformat()}"
         return hashlib.sha256(raw.encode()).hexdigest()
 
     def activate(self) -> None:
         """Lock the factor permanently. Can only be called once."""
         if self.is_active:
             raise ValueError("Emission factor already active and immutable")
-        self.factor_hash = self.generate_hash()
+        if not self.factor_hash:
+            self.factor_hash = self.generate_hash()
         self.is_active = True

@@ -46,6 +46,16 @@ class Settings(BaseSettings):
     # Uploads
     UPLOAD_ROOT: str = str(_BACKEND_ROOT / "uploads")
 
+    # Feature gates (default OFF for regulator-grade MRV mode)
+    ENABLE_MRV_INGESTION: bool = Field(
+        True,
+        description="Enable MRV ingestion routes under /api/mrv/* (can be disabled in hardened deployments)",
+    )
+    ENABLE_CARBON_CREDITS: bool = Field(
+        False,
+        description="Enable any carbon-credit issuance/retirement APIs (default disabled)",
+    )
+
 
 # Default carbon factor mappings; can be overridden via DB or config table.
 CARBON_FACTORS_BASELINE = {

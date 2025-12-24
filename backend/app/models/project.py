@@ -33,6 +33,20 @@ class Project(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
+    # ISO-style project boundary metadata (locked baseline/reporting period)
+    reporting_period_start: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    reporting_period_end: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    baseline_locked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    baseline_locked_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id"), nullable=True
+    )
+
     material_tokens: Mapped[list["MaterialToken"]] = relationship("MaterialToken", back_populates="project")
     sensor_readings: Mapped[list["SensorReading"]] = relationship("SensorReading", back_populates="project")
     mrv_reports: Mapped[list["MRVReport"]] = relationship("MRVReport", back_populates="project")

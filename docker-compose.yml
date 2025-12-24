@@ -33,15 +33,8 @@ services:
     volumes:
       - ./backend:/app
       - backend_uploads:/app/uploads
-      - backend_db:/app
     ports:
       - "8000:8000"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
   # Frontend development service
   frontend:
@@ -59,12 +52,6 @@ services:
       - VITE_WS_URL=ws://localhost:8000/ws
     depends_on:
       - backend
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
 
   # Redis for caching and sessions (optional)
@@ -103,13 +90,9 @@ services:
       - "8080:8080"
     depends_on:
       - postgres
-    depends_on:
-      - postgres
 
 volumes:
   backend_uploads:
-    driver: local
-  backend_db:
     driver: local
   postgres_data:
     driver: local

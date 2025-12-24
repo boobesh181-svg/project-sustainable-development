@@ -96,6 +96,12 @@ class DeliveryVerification(Base):
 
     # Inspector audit trail
     verified_by: Mapped[str] = mapped_column(String(100), nullable=False)
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id"), nullable=True
+    )
+    verified_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id"), nullable=True
+    )
 
     # Verification status (one-time lock)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

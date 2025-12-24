@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.mrv_report import MRVReport, MRVStatus
+from app.models.role import RoleName
 from app.schemas.mrv_approval import MRVReportCreate
 from app.services.audit_log_service import write_audit_log
 
@@ -62,7 +63,7 @@ async def create_mrv_report(
     # Log to audit trail
     await write_audit_log(
         db=db,
-        actor=payload.created_by,
+        actor=str(payload.created_by),
         action="MRV_CREATED",
         entity_type="MRVReport",
         entity_id=str(report.id),
@@ -81,7 +82,8 @@ async def advance_mrv_status(
     db: AsyncSession,
     report_id: UUID,
     next_status: str,
-    actor: str,
+    actor: UUID,
+    actor_role: RoleName | None = None,
 ) -> MRVReport:
     """
     Advance MRV report to next workflow state (strict progression).
@@ -124,13 +126,45 @@ async def advance_mrv_status(
             f"{', '.join([s.value for s in MRVStatus])}"
         )
 
-    # Enforce immutability check (raises if APPROVED/LOCKED)
-    report.assert_editable()
+    previous_status = report.status
+
+    # Role gating + separation of duties (ISO-style workflow enforcement)
+    # DRAFT -> SUBMITTED: creator submits
+    if target_status == MRVStatus.SUBMITTED:
+        if actor != report.created_by:
+            raise ValueError("Only the report creator can submit (DRAFT → SUBMITTED)")
+
+    # SUBMITTED -> VERIFIED: MRV officer verifies, must differ from creator
+    if target_status == MRVStatus.VERIFIED:
+        if actor_role != RoleName.MRV_OFFICER:
+            raise ValueError("Only MRV officers can verify (SUBMITTED → VERIFIED)")
+        if actor == report.created_by:
+            raise ValueError("Separation of duties violated: verifier cannot be creator")
+
+    # VERIFIED -> APPROVED: admin approves, must differ from creator and verifier
+    if target_status == MRVStatus.APPROVED:
+        if actor_role != RoleName.ADMIN:
+            raise ValueError("Only admins can approve (VERIFIED → APPROVED)")
+        if actor == report.created_by:
+            raise ValueError("Separation of duties violated: approver cannot be creator")
+        if report.verified_by and actor == report.verified_by:
+            raise ValueError("Separation of duties violated: approver cannot be verifier")
+
+    # APPROVED -> LOCKED: admin finalizes lock
+    if target_status == MRVStatus.LOCKED:
+        if actor_role != RoleName.ADMIN:
+            raise ValueError("Only admins can lock (APPROVED → LOCKED)")
+        if report.approved_by and actor != report.approved_by:
+            raise ValueError("Only the approving admin can lock this report")
 
     # Assign roles based on transition
     if target_status == MRVStatus.VERIFIED:
+        if report.verified_by and report.verified_by != actor:
+            raise ValueError("Report already verified; verifier cannot be changed")
         report.verified_by = actor
     elif target_status == MRVStatus.APPROVED:
+        if report.approved_by and report.approved_by != actor:
+            raise ValueError("Report already approved; approver cannot be changed")
         report.approved_by = actor
 
     # Advance state (validates transition logic)
@@ -143,13 +177,13 @@ async def advance_mrv_status(
     # Log to audit trail
     await write_audit_log(
         db=db,
-        actor=actor,
+        actor=str(actor),
         action=f"MRV_{target_status.value}",
         entity_type="MRVReport",
         entity_id=str(report.id),
         event_payload={
             "project_id": str(report.project_id),
-            "previous_status": report.status.value if hasattr(report.status, 'value') else str(report.status),
+            "previous_status": previous_status.value,
             "new_status": target_status.value,
             "total_co2e": float(report.total_co2e),
         },

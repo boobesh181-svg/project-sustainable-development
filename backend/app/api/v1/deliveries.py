@@ -4,7 +4,9 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_db, get_current_user, role_required
+from app.models.role import RoleName
+from app.models.user import User
 from app.schemas.delivery import (
     DeliveryVerificationCreate,
     DeliveryVerificationApprove,
@@ -25,6 +27,9 @@ router = APIRouter(prefix="/api/v1/deliveries", tags=["Delivery Verification"])
 async def create_verification(
     payload: DeliveryVerificationCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        role_required([RoleName.CONTRACTOR, RoleName.PROJECT_MANAGER, RoleName.SUPPLIER])
+    ),
 ):
     """
     Create a tamper-proof delivery verification record.
@@ -37,7 +42,12 @@ async def create_verification(
     - One verification per token
     """
     try:
-        return await create_delivery_verification(db, payload)
+        return await create_delivery_verification(
+            db,
+            payload,
+            actor_user_id=current_user.id,
+            actor_email=current_user.email,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -47,6 +57,7 @@ async def approve_verification(
     verification_id: UUID,
     payload: DeliveryVerificationApprove,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(role_required([RoleName.MRV_OFFICER, RoleName.ADMIN])),
 ):
     """
     Approve/lock a delivery verification (one-time, immutable after).
@@ -59,7 +70,13 @@ async def approve_verification(
     - Inspector identity recorded
     """
     try:
-        return await approve_delivery_verification(db, verification_id, payload)
+        return await approve_delivery_verification(
+            db,
+            verification_id,
+            payload,
+            actor_user_id=current_user.id,
+            actor_email=current_user.email,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -68,6 +85,7 @@ async def approve_verification(
 async def get_verification(
     verification_id: UUID,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Fetch delivery verification by ID."""
     verification = await get_delivery_verification_by_id(db, verification_id)
@@ -82,6 +100,7 @@ async def get_verification(
 async def check_integrity(
     verification_id: UUID,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Check if delivery evidence has been tampered with.

@@ -19,7 +19,11 @@ from app.services.audit_log_service import write_audit_log
 
 
 async def create_delivery_verification(
-    db: AsyncSession, data: DeliveryVerificationCreate
+    db: AsyncSession,
+    data: DeliveryVerificationCreate,
+    *,
+    actor_user_id: UUID,
+    actor_email: str,
 ) -> DeliveryVerification:
     """
     Create a tamper-proof delivery verification record.
@@ -73,6 +77,7 @@ async def create_delivery_verification(
         gps_hash=gps_hash,
         verified_at=verified_at,
         verified_by="system",  # Updated when inspector approves
+        created_by_user_id=actor_user_id,
         is_verified=False,
     )
 
@@ -83,7 +88,7 @@ async def create_delivery_verification(
     # Log to audit trail
     await write_audit_log(
         db=db,
-        actor="system",
+        actor=actor_email,
         action="DELIVERY_VERIFICATION_CREATED",
         entity_type="DeliveryVerification",
         entity_id=str(verification.id),
@@ -100,7 +105,12 @@ async def create_delivery_verification(
 
 
 async def approve_delivery_verification(
-    db: AsyncSession, verification_id: UUID, data: DeliveryVerificationApprove
+    db: AsyncSession,
+    verification_id: UUID,
+    data: DeliveryVerificationApprove,
+    *,
+    actor_user_id: UUID,
+    actor_email: str,
 ) -> DeliveryVerification:
     """
     Approve/lock a delivery verification (one-time, immutable after).
@@ -126,11 +136,13 @@ async def approve_delivery_verification(
     # Lock verification (integrity checks inside)
     try:
         verification.lock_verification(
-            verified_by=data.verified_by,
+            verified_by=actor_email,
             notes=data.verification_notes,
         )
     except ValueError as e:
         raise ValueError(f"Verification failed: {str(e)}")
+
+    verification.verified_by_user_id = actor_user_id
 
     db.add(verification)
     await db.commit()
@@ -139,7 +151,7 @@ async def approve_delivery_verification(
     # Log to audit trail
     await write_audit_log(
         db=db,
-        actor=data.verified_by,
+        actor=actor_email,
         action="DELIVERY_VERIFIED",
         entity_type="DeliveryVerification",
         entity_id=str(verification.id),

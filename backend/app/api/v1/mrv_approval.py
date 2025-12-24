@@ -5,8 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_db
+from app.api.deps import get_current_user, get_db, role_required
 from app.models.mrv_report import MRVReport
+from app.models.role import RoleName
+from app.models.user import User
 from app.schemas.mrv_approval import (
     MRVReportCreate,
     MRVReportAdvance,
@@ -50,6 +52,9 @@ async def list_reports(
 async def create_report(
     payload: MRVReportCreate,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(
+        role_required([RoleName.CONTRACTOR, RoleName.PROJECT_MANAGER])
+    ),
 ):
     """
     Create a new MRV report (starts in DRAFT state).
@@ -60,7 +65,8 @@ async def create_report(
     - CO₂ value locked at creation
     """
     try:
-        return await create_mrv_report(db, payload)
+        server_payload = payload.model_copy(update={"created_by": current_user.id})
+        return await create_mrv_report(db, server_payload)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -70,6 +76,7 @@ async def advance_report(
     report_id: UUID,
     payload: MRVReportAdvance,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     Advance MRV report to next workflow state (strict progression).
@@ -97,7 +104,8 @@ async def advance_report(
             db=db,
             report_id=report_id,
             next_status=payload.next_status,
-            actor=payload.actor,
+            actor=current_user.id,
+            actor_role=current_user.role.name if current_user.role else None,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

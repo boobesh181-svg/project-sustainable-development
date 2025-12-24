@@ -1,172 +1,148 @@
-#!/bin/bash
-# MRV Ingestion API Test Commands
-# Run these commands to test all MRV ingestion endpoints
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Base URL (adjust as needed)
+# Canonical API Test Commands (secured /api/v1)
+#
+# Notes:
+# - Legacy ingestion endpoints under /api/mrv/* are disabled by default (ENABLE_MRV_INGESTION=false).
+# - This script targets the ISO-style MRV approval workflow, emission factor governance, and
+#   delivery evidence verification.
+
 BASE_URL="http://localhost:8000"
-AUTH_TOKEN="your_jwt_token_here"
 
-echo "=== MRV Ingestion API Tests ==="
+echo "=== Canonical MRV API Tests ==="
 echo "Base URL: $BASE_URL"
-echo "Auth Token: $AUTH_TOKEN"
-echo ""
 
-# 1. Create a new sample with evidence file
-echo "1. Creating new sample with evidence file..."
-curl -X POST "$BASE_URL/api/mrv/samples/" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -H "Content-Type: multipart/form-data" \
-  -F "project_id=proj123" \
-  -F "collected_by=John Doe" \
-  -F "collected_at=2024-01-15T10:00:00Z" \
-  -F "geotag_lat=40.7128" \
-  -F "geotag_lon=-74.0060" \
-  -F "sample_type=soil" \
-  -F "notes=Sample from construction site A" \
-  -F "evidence_file=@sample_evidence.jpg"
-echo ""
+python_json_get() {
+  python - <<'PY'
+import json,sys
+print(json.load(sys.stdin)["access_token"])
+PY
+}
 
-# 2. Create a sample without evidence file
-echo "2. Creating sample without evidence file..."
-curl -X POST "$BASE_URL/api/mrv/samples/" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -H "Content-Type: multipart/form-data" \
-  -F "project_id=proj123" \
-  -F "collected_by=Jane Smith" \
-  -F "sample_type=water" \
-  -F "geotag_lat=40.7589" \
-  -F "geotag_lon=-73.9851" \
-  -F "notes=Water sample from river"
-echo ""
+echo "\n1) Login + capture tokens"
+ADMIN_TOKEN=$(curl -sS -X POST "$BASE_URL/api/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"admin123"}' | python_json_get)
 
-# 3. Add chain of custody step
-echo "3. Adding chain of custody step..."
-curl -X POST "$BASE_URL/api/mrv/samples/SAMPLE123/chain" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -H "Content-Type: multipart/form-data" \
-  -F "actor=Lab Technician" \
-  -F "action=received_at_lab" \
-  -F "timestamp=2024-01-15T14:00:00Z" \
-  -F "notes=Sample received in good condition, properly labeled" \
-  -F "evidence_file=@chain_evidence.jpg"
-echo ""
+ISSUER_TOKEN=$(curl -sS -X POST "$BASE_URL/api/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"mrv@example.com","password":"mrv123"}' | python_json_get)
 
-# 4. Submit sample to laboratory
-echo "4. Submitting sample to laboratory..."
-curl -X POST "$BASE_URL/api/mrv/samples/SAMPLE123/submit_lab" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -H "Content-Type: multipart/form-data" \
-  -F "lab_id=lab123" \
-  -F "expected_tests=[\"ph\", \"heavy_metals\", \"organic_content\", \"nitrogen\"]" \
-  -F "submitted_at=2024-01-15T15:00:00Z" \
-  -F "sample_condition=good - no contamination visible"
-echo ""
+VERIFIER_TOKEN=$(curl -sS -X POST "$BASE_URL/api/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"verifier@example.com","password":"verifier123"}' | python_json_get)
 
-# 5. Upload test result with certificate
-echo "5. Uploading test result with certificate..."
-curl -X POST "$BASE_URL/api/mrv/tests/SAMPLE123/upload" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -H "Content-Type: multipart/form-data" \
-  -F "parameter=ph" \
-  -F "value=7.2" \
-  -F "unit=pH" \
-  -F "method=ISO 10304:2007" \
-  -F "tested_at=2024-01-16T10:30:00Z" \
-  -F "certificate_file=@test_certificate.pdf"
-echo ""
+APPROVER_TOKEN=$(curl -sS -X POST "$BASE_URL/api/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"approver@example.com","password":"approver123"}' | python_json_get)
 
-# 6. Upload another test result
-echo "6. Uploading heavy metals test result..."
-curl -X POST "$BASE_URL/api/mrv/tests/SAMPLE123/upload" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -H "Content-Type: multipart/form-data" \
-  -F "parameter=lead" \
-  -F "value=0.05" \
-  -F "unit=mg/kg" \
-  -F "method=USEPA 3050B" \
-  -F "tested_at=2024-01-16T11:00:00Z" \
-  -F "certificate_file=@heavy_metals_cert.pdf"
-echo ""
+echo "  - ADMIN_TOKEN OK"
+echo "  - ISSUER_TOKEN OK"
+echo "  - VERIFIER_TOKEN OK"
+echo "  - APPROVER_TOKEN OK"
 
-# 7. Upload test with QA issues (missing value)
-echo "7. Uploading test with QA issues..."
-curl -X POST "$BASE_URL/api/mrv/tests/SAMPLE456/upload" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -H "Content-Type: multipart/form-data" \
-  -F "parameter=organic_content" \
-  -F "value=" \
-  -F "unit=%" \
-  -F "method=ASTM D2974" \
-  -F "tested_at=2024-01-16T12:00:00Z" \
-  -F "certificate_file=@organic_cert.pdf"
-echo ""
+echo "\n2) Discover a seeded project_id (DB query)"
+PROJECT_ID=$(docker compose -f "backend/docker-compose.yml" exec -T db \
+  psql -U windsurf -d windsurf -t -c "SELECT id FROM project ORDER BY created_at DESC LIMIT 1;" \
+  | tr -d '[:space:]')
+echo "  project_id=$PROJECT_ID"
 
-# 8. Get sample details with all related data
-echo "8. Getting sample details..."
-curl -X GET "$BASE_URL/api/mrv/samples/SAMPLE123" \
-  -H "Authorization: Bearer $AUTH_TOKEN"
-echo ""
+echo "\n3) Admin creates + activates an emission factor"
+FACTOR_ID=$(curl -sS -X POST "$BASE_URL/api/v1/emission-factors/" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "material_code":"CEMENT_OPC",
+    "material_name":"Cement (OPC)",
+    "version": 1,
+    "co2e_per_unit": 0.900000,
+    "unit":"kg",
+    "valid_from":"2025-01-01T00:00:00Z"
+  }' | python - <<'PY'
+import json,sys
+print(json.load(sys.stdin)["id"])
+PY
+)
+echo "  factor_id=$FACTOR_ID"
 
-# 9. Get samples for a project (paginated)
-echo "9. Getting project samples..."
-curl -X GET "$BASE_URL/api/mrv/projects/proj123/samples?page=1&size=10" \
-  -H "Authorization: Bearer $AUTH_TOKEN"
-echo ""
+curl -sS -X POST "$BASE_URL/api/v1/emission-factors/$FACTOR_ID/activate" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{}' > /dev/null
+echo "  activated"
 
-# 10. Get filtered samples by status
-echo "10. Getting samples filtered by status..."
-curl -X GET "$BASE_URL/api/mrv/projects/proj123/samples?status=in_lab&page=1&size=5" \
-  -H "Authorization: Bearer $AUTH_TOKEN"
-echo ""
+echo "\n4) Issuer creates MRV report (DRAFT) referencing emission factor"
+REPORT_ID=$(curl -sS -X POST "$BASE_URL/api/v1/mrv-approval/reports" \
+  -H "Authorization: Bearer $ISSUER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\
+    \"project_id\":\"$PROJECT_ID\",\
+    \"reporting_period\":\"2025-Q1\",\
+    \"sample_desc\":\"Batch-1 materials + transport\",\
+    \"parameter\":\"scope3_materials\",\
+    \"value\":\"cement_opc\",\
+    \"total_co2e\": 12.345678,\
+    \"emission_factor_id\":\"$FACTOR_ID\"\
+  }" | python - <<'PY'
+import json,sys
+print(json.load(sys.stdin)["id"])
+PY
+)
+echo "  report_id=$REPORT_ID"
 
-# 11. Test with invalid file type (should fail)
-echo "11. Testing invalid file type (should fail)..."
-curl -X POST "$BASE_URL/api/mrv/tests/SAMPLE123/upload" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -H "Content-Type: multipart/form-data" \
-  -F "parameter=ph" \
-  -F "value=7.2" \
-  -F "unit=pH" \
-  -F "method=ISO 10304" \
-  -F "certificate_file=@invalid_file.txt"
-echo ""
+echo "\n5) Advance workflow: DRAFT->SUBMITTED (issuer), SUBMITTED->VERIFIED (verifier), VERIFIED->APPROVED (approver), APPROVED->LOCKED (approver)"
+curl -sS -X POST "$BASE_URL/api/v1/mrv-approval/reports/$REPORT_ID/advance" \
+  -H "Authorization: Bearer $ISSUER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"next_status":"SUBMITTED"}' > /dev/null
 
-# 12. Test with oversized file (should fail)
-echo "12. Testing oversized file (should fail)..."
-curl -X POST "$BASE_URL/api/mrv/samples/" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -H "Content-Type: multipart/form-data" \
-  -F "project_id=proj123" \
-  -F "collected_by=Test User" \
-  -F "sample_type=soil" \
-  -F "evidence_file=@large_file.jpg"
-echo ""
+curl -sS -X POST "$BASE_URL/api/v1/mrv-approval/reports/$REPORT_ID/advance" \
+  -H "Authorization: Bearer $VERIFIER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"next_status":"VERIFIED"}' > /dev/null
 
-# 13. Test with invalid project ID (should fail)
-echo "13. Testing invalid project ID (should fail)..."
-curl -X POST "$BASE_URL/api/mrv/samples/" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -H "Content-Type: multipart/form-data" \
-  -F "project_id=invalid_project" \
-  -F "collected_by=Test User" \
-  -F "sample_type=soil"
-echo ""
+curl -sS -X POST "$BASE_URL/api/v1/mrv-approval/reports/$REPORT_ID/advance" \
+  -H "Authorization: Bearer $APPROVER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"next_status":"APPROVED"}' > /dev/null
 
-# 14. Test with invalid sample ID (should fail)
-echo "14. Testing invalid sample ID (should fail)..."
-curl -X GET "$BASE_URL/api/mrv/samples/INVALID_SAMPLE" \
-  -H "Authorization: Bearer $AUTH_TOKEN"
-echo ""
+curl -sS -X POST "$BASE_URL/api/v1/mrv-approval/reports/$REPORT_ID/advance" \
+  -H "Authorization: Bearer $APPROVER_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"next_status":"LOCKED"}' > /dev/null
 
-# 15. Test unauthorized access (should fail)
-echo "15. Testing unauthorized access (should fail)..."
-curl -X POST "$BASE_URL/api/mrv/samples/" \
-  -H "Authorization: Bearer invalid_token" \
-  -H "Content-Type: multipart/form-data" \
-  -F "project_id=proj123" \
-  -F "collected_by=Test User" \
-  -F "sample_type=soil"
-echo ""
+echo "  locked"
 
-echo "=== Test Complete ==="
-echo "Check the responses above for any errors or issues."
+echo "\n6) Delivery verification (evidence)"
+TOKEN_ID=$(docker compose -f "backend/docker-compose.yml" exec -T db \
+  psql -U windsurf -d windsurf -t -c "SELECT id FROM material_token WHERE redeemed = TRUE ORDER BY redeemed_at DESC NULLS LAST LIMIT 1;" \
+  | tr -d '[:space:]')
+
+if [ -z "$TOKEN_ID" ]; then
+  echo "  No redeemed material_token found; seed data first (backend/scripts/seed_mrv.py)."
+else
+  echo "  material_token_id=$TOKEN_ID"
+  VERIFY_ID=$(curl -sS -X POST "$BASE_URL/api/v1/deliveries/verify" \
+    -H "Authorization: Bearer $ISSUER_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d "{\
+      \"material_token_id\":\"$TOKEN_ID\",\
+      \"photo_path\":\"/uploads/material_evidence/demo_photo.jpg\",\
+      \"delivery_lat\":12.9716,\
+      \"delivery_lon\":77.5946\
+    }" | python - <<'PY'
+import json,sys
+print(json.load(sys.stdin)["id"])
+PY
+  )
+  echo "  delivery_verification_id=$VERIFY_ID"
+
+  curl -sS -X POST "$BASE_URL/api/v1/deliveries/$VERIFY_ID/approve" \
+    -H "Authorization: Bearer $VERIFIER_TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"verification_notes":"Approved after integrity checks"}' > /dev/null
+  echo "  delivery verified"
+fi
+
+echo "\n=== Done ==="

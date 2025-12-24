@@ -12,7 +12,8 @@ class EmissionFactorCreate(BaseModel):
     co2e_per_unit: float = Field(..., gt=0, description="kg CO₂e per unit")
     unit: str = Field(default="kg", max_length=50)
     valid_from: datetime
-    created_by: str = Field(..., min_length=1)
+    # Deprecated: server derives actor identity from JWT; retained for backward compatibility.
+    created_by: str | None = Field(None, min_length=1)
 
 
 class EmissionFactorOut(BaseModel):
@@ -28,6 +29,7 @@ class EmissionFactorOut(BaseModel):
     factor_hash: str
     created_at: datetime
     created_by: str
+    created_by_user_id: UUID | None = None
     
     model_config = ConfigDict(from_attributes=True)
 

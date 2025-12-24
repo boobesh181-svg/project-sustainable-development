@@ -4,6 +4,11 @@ import { resolveApiBase } from './resolveApiBase'
 
 const API_BASE = resolveApiBase()
 
+function authHeaders() {
+  const token = localStorage.getItem('access_token')
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
 export const apiClient = {
   // Dashboard endpoints
   async fetchDashboardSummary() {
@@ -26,13 +31,17 @@ export const apiClient = {
 
   // MRV endpoints
   async fetchMRVReports() {
-    const res = await fetch(`${API_BASE}/api/v1/mrv-approval/reports`)
+    const res = await fetch(`${API_BASE}/api/v1/mrv-approval/reports`, {
+      headers: { ...authHeaders() },
+    })
     if (!res.ok) throw new Error(`Failed: ${res.status}`)
     return res.json()
   },
 
   async fetchMRVReport(reportId) {
-    const res = await fetch(`${API_BASE}/api/v1/mrv-approval/reports/${reportId}`)
+    const res = await fetch(`${API_BASE}/api/v1/mrv-approval/reports/${reportId}`, {
+      headers: { ...authHeaders() },
+    })
     if (!res.ok) throw new Error(`Failed: ${res.status}`)
     return res.json()
   },
@@ -40,7 +49,7 @@ export const apiClient = {
   async createMRVReport(payload) {
     const res = await fetch(`${API_BASE}/api/v1/mrv-approval/reports`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(payload),
     })
     if (!res.ok) throw new Error(`Failed: ${res.status}`)
@@ -50,7 +59,7 @@ export const apiClient = {
   async advanceMRVStatus(reportId, nextStatus, actor) {
     const res = await fetch(`${API_BASE}/api/v1/mrv-approval/reports/${reportId}/advance`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ next_status: nextStatus, actor }),
     })
     if (!res.ok) throw new Error(`Failed: ${res.status}`)

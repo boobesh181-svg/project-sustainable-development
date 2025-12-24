@@ -1,6 +1,7 @@
 """Emission factor service: creation, activation, and immutability enforcement."""
 
 from decimal import Decimal
+from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -9,7 +10,11 @@ from app.schemas.emission_factor import EmissionFactorCreate
 
 
 async def create_emission_factor(
-    db: AsyncSession, data: EmissionFactorCreate
+    db: AsyncSession,
+    data: EmissionFactorCreate,
+    *,
+    actor_user_id: UUID,
+    actor_email: str,
 ) -> EmissionFactor:
     """
     Create a new emission factor version.
@@ -36,9 +41,12 @@ async def create_emission_factor(
         co2e_per_unit=data.co2e_per_unit,
         unit=data.unit,
         valid_from=data.valid_from,
-        created_by=data.created_by,
+        created_by=actor_email,
+        created_by_user_id=actor_user_id,
         is_active=False,  # Start inactive
     )
+    # factor_hash is required by schema; compute once and keep immutable.
+    factor.factor_hash = factor.generate_hash()
 
     db.add(factor)
     await db.commit()
@@ -62,14 +70,7 @@ async def activate_emission_factor(db: AsyncSession, factor_id: str) -> Emission
     if factor.is_active:
         raise ValueError("Emission factor already active and immutable")
 
-    # Deactivate previous active versions
-    await db.execute(
-        select(EmissionFactor)
-        .where(
-            EmissionFactor.material_code == factor.material_code,
-            EmissionFactor.is_active == True,
-        )
-    )
+    # Deactivate previous active version (only toggles is_active True->False)
     prev_active = (
         await db.execute(
             select(EmissionFactor).where(
@@ -81,7 +82,7 @@ async def activate_emission_factor(db: AsyncSession, factor_id: str) -> Emission
     if prev_active:
         prev_active.is_active = False
 
-    # Activate and hash-lock
+    # Activate (hash is already computed and immutable)
     factor.activate()
     
     db.add(factor)

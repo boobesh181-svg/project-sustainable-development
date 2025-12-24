@@ -88,9 +88,15 @@ class MRVReport(Base):
     )
 
     # Role separation (creator ≠ verifier ≠ approver)
-    created_by: Mapped[str] = mapped_column(String(100), nullable=False)
-    verified_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    approved_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id"), nullable=False
+    )
+    verified_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id"), nullable=True
+    )
+    approved_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id"), nullable=True
+    )
 
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
@@ -111,6 +117,28 @@ class MRVReport(Base):
         CheckConstraint(
             "emission_factor_hash_snapshot IS NULL OR char_length(emission_factor_hash_snapshot) = 64",
             name="ck_mrv_snapshot_hash_len",
+        ),
+        # Status ↔ actor requirements
+        CheckConstraint(
+            "(status IN ('VERIFIED','APPROVED','LOCKED')) = (verified_by IS NOT NULL)",
+            name="ck_mrv_verified_by_required",
+        ),
+        CheckConstraint(
+            "(status IN ('APPROVED','LOCKED')) = (approved_by IS NOT NULL)",
+            name="ck_mrv_approved_by_required",
+        ),
+        # Separation of duties (null-safe)
+        CheckConstraint(
+            "created_by IS DISTINCT FROM verified_by",
+            name="ck_mrv_creator_ne_verifier",
+        ),
+        CheckConstraint(
+            "created_by IS DISTINCT FROM approved_by",
+            name="ck_mrv_creator_ne_approver",
+        ),
+        CheckConstraint(
+            "verified_by IS NULL OR approved_by IS NULL OR verified_by IS DISTINCT FROM approved_by",
+            name="ck_mrv_verifier_ne_approver",
         ),
     )
 
@@ -144,6 +172,9 @@ class MRVReport(Base):
         Raises:
             ValueError: If transition is invalid
         """
+        if self.status == MRVStatus.LOCKED:
+            raise ValueError("Invalid MRV state transition: LOCKED reports are immutable")
+
         # Define allowed transitions
         allowed_transitions = {
             MRVStatus.DRAFT: MRVStatus.SUBMITTED,
@@ -161,9 +192,6 @@ class MRVReport(Base):
                 f"Invalid MRV state transition: {self.status.value} → {next_status.value} "
                 f"(expected {self.status.value} → {expected_next.value})"
             )
-
-        # Enforce immutability check before advancing
-        self.assert_editable()
 
         # Advance state
         self.status = next_status

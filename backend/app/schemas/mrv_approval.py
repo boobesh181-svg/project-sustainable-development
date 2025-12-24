@@ -13,7 +13,10 @@ class MRVReportCreate(BaseModel):
     parameter: str = Field(..., min_length=1, max_length=255)
     value: str = Field(..., min_length=1, max_length=255)
     total_co2e: float = Field(..., gt=0, description="Total CO2 equivalent in tonnes")
-    created_by: str = Field(..., min_length=1, max_length=100)
+    created_by: UUID | None = Field(
+        None,
+        description="Deprecated: server derives from authenticated user",
+    )
     emission_factor_id: UUID | None = None
     certificate_path: str | None = None
 
@@ -24,11 +27,9 @@ class MRVReportAdvance(BaseModel):
         ...,
         description="Target status: SUBMITTED, VERIFIED, APPROVED, or LOCKED"
     )
-    actor: str = Field(
-        ...,
-        min_length=1,
-        max_length=100,
-        description="User advancing the workflow (verifier/approver)"
+    actor: UUID | None = Field(
+        None,
+        description="Deprecated: server derives from authenticated user",
     )
 
 
@@ -42,9 +43,9 @@ class MRVReportOut(BaseModel):
     value: str
     total_co2e: float
     status: str
-    created_by: str
-    verified_by: str | None
-    approved_by: str | None
+    created_by: UUID
+    verified_by: UUID | None
+    approved_by: UUID | None
     created_at: datetime
     updated_at: datetime
     emission_factor_id: UUID | None
@@ -63,7 +64,7 @@ class MRVReportSummary(BaseModel):
     reporting_period: str
     total_co2e: float
     status: str
-    created_by: str
+    created_by: UUID
     created_at: datetime
     
     model_config = ConfigDict(from_attributes=True)

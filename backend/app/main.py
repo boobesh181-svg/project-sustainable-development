@@ -80,15 +80,16 @@ except Exception as e:
     logger.exception("Failed to include MRV router: %s", e)
     traceback.print_exc()
 
-# MRV ingestion router (separate module)
-try:
-    from app.mrv.routes import router as mrv_ingestion_router
+# MRV ingestion router (legacy, not canonical) - disabled by default.
+if settings.ENABLE_MRV_INGESTION:
+    try:
+        from app.mrv.routes import router as mrv_ingestion_router
 
-    app.include_router(mrv_ingestion_router, tags=["mrv-ingestion"])
-    logger.info("MRV ingestion router included successfully")
-except Exception as e:
-    import traceback
+        app.include_router(mrv_ingestion_router, tags=["mrv-ingestion"])
+        logger.info("MRV ingestion router included successfully")
+    except Exception as e:
+        import traceback
 
-    logger.exception("Failed to include MRV ingestion router: %s", e)
-    traceback.print_exc()
+        logger.exception("Failed to include MRV ingestion router: %s", e)
+        traceback.print_exc()
 

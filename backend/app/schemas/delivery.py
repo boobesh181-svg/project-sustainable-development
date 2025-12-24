@@ -15,7 +15,8 @@ class DeliveryVerificationCreate(BaseModel):
 
 class DeliveryVerificationApprove(BaseModel):
     """Approve/lock a delivery verification (one-time)."""
-    verified_by: str = Field(..., min_length=1, max_length=100)
+    # Deprecated: server derives actor identity from JWT; retained for backward compatibility.
+    verified_by: str | None = Field(None, min_length=1, max_length=100)
     verification_notes: str | None = Field(None, max_length=1000)
 
 
@@ -30,6 +31,8 @@ class DeliveryVerificationOut(BaseModel):
     gps_hash: str
     verified_at: datetime
     verified_by: str
+    created_by_user_id: UUID | None = None
+    verified_by_user_id: UUID | None = None
     is_verified: bool
     verification_notes: str | None
     
