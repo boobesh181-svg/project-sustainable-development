@@ -40,9 +40,9 @@ export const Co2CostScatter: React.FC<Co2CostScatterProps> = ({ data }) => {
               border: "1px solid #475569",
               borderRadius: "8px",
             }}
-            formatter={(value: any, name: string) => [
+            formatter={(value: number | string, name: string) => [
               name === "Cost (USD)" ? `$${Number(value).toLocaleString()}` : `${Number(value).toFixed(2)} t`,
-              name
+              name,
             ]}
             labelFormatter={(value) => `Project: ${value}`}
           />

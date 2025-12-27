@@ -10,6 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.main import app
 from app.mrv.models import MRVTest, MRVSample, MRVSampleStatus
 from app.models.project import Project
+from app.core.config import settings
+
+
+# MRV queue endpoints live under the legacy ingestion router (/api/mrv/*),
+# which is feature-gated and OFF by default.
+pytestmark = pytest.mark.skipif(
+    not settings.ENABLE_MRV_INGESTION,
+    reason="Legacy MRV ingestion workflow disabled by default",
+)
 
 
 class TestMRVQueueAPI:

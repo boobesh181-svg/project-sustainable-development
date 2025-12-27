@@ -9,7 +9,7 @@ This project includes comprehensive Docker configuration for development and pro
 ### Backend API
 - **Port**: 8000
 - **Technology**: FastAPI + Python 3.11
-- **Database**: SQLite (development) / PostgreSQL (production)
+- **Database**: PostgreSQL (recommended; production-grade)
 - **Features**: Auto-migrations, health checks, file uploads
 
 ### Frontend
@@ -25,9 +25,9 @@ This project includes comprehensive Docker configuration for development and pro
 
 ## Quick Start
 
-### Development (SQLite)
+### Development (PostgreSQL)
 ```bash
-# Start backend and frontend
+# Start postgres + backend + frontend
 docker-compose up -d
 
 # View logs
@@ -37,17 +37,7 @@ docker-compose logs -f
 docker-compose down
 ```
 
-### Development with PostgreSQL
-```bash
-# Start with PostgreSQL database
-docker-compose --profile postgres up -d
-
-# Access database admin
-# http://localhost:8080
-# Server: db
-# Username: windsurf
-# Password: windsurf_pass
-```
+Adminer is available at http://localhost:8080 (user/pass: windsurf / windsurf_pass).
 
 ### Production Deployment
 ```bash
@@ -67,7 +57,7 @@ docker-compose --profile production --profile postgres up -d
 ### Backend Environment
 ```bash
 ENV=docker
-DATABASE_URL=sqlite:///./dev.db
+DATABASE_URL=postgresql+asyncpg://windsurf:windsurf_pass@postgres:5432/windsurf
 SECRET_KEY=change-me-in-production
 ACCESS_TOKEN_EXPIRE_MINUTES=15
 REFRESH_TOKEN_EXPIRE_DAYS=30
@@ -95,9 +85,9 @@ VITE_WS_URL=ws://localhost:8000/ws
 
 ## Health Checks
 
-All services include health checks:
-- **Backend**: `curl -f http://localhost:8000/health`
-- **Frontend**: `curl -f http://localhost:3000`
+All services include health checks (no curl dependency required in containers):
+- **Backend**: `GET http://localhost:8000/health`
+- **Frontend**: `GET http://localhost:3000`
 - **Database**: Connection validation
 
 ## Production Configuration

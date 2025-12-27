@@ -8,7 +8,7 @@ duplicate certificate detection.
 
 import hashlib
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Tuple, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -244,7 +244,7 @@ async def run_quick_mrv_checks(
         "value_range_flag": {"passed": True, "details": ""},
         "duplicate_cert_flag": {"passed": True, "details": ""},
         "overall_pass": True,
-        "check_timestamp": datetime.utcnow().isoformat(),
+        "check_timestamp": datetime.now(timezone.utc).isoformat(),
         "warnings": []
     }
     

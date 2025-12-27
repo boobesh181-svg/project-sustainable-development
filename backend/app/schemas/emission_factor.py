@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class EmissionFactorCreate(BaseModel):
-    material_code: str = Field(..., example="CEMENT_OPC", min_length=1, max_length=100)
+    material_code: str = Field(..., json_schema_extra={"example": "CEMENT_OPC"}, min_length=1, max_length=100)
     material_name: str = Field(..., min_length=1, max_length=255)
     version: int = Field(..., ge=1)
     co2e_per_unit: float = Field(..., gt=0, description="kg CO₂e per unit")

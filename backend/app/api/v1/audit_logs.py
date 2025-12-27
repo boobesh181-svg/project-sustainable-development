@@ -5,7 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 
-from app.api.deps import get_db
+from app.api.deps import get_db, role_required
+from app.models.role import RoleName
+from app.models.user import User
 from app.services.audit_log_service import (
     get_audit_logs,
     verify_audit_chain,
@@ -17,12 +19,16 @@ class AuditLogOut(BaseModel):
     """Audit log entry response."""
     id: str
     actor: str
+    actor_user_id: str | None = None
     action: str
     entity_type: str
     entity_id: str
     event_hash: str
     prev_hash: str | None
     chain_hash: str
+    ip_address: str | None = None
+    user_agent: str | None = None
+    request_id: str | None = None
     created_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
@@ -45,6 +51,7 @@ async def list_audit_logs(
     actor: str | None = Query(None, description="Filter by actor (user/system)"),
     action: str | None = Query(None, description="Filter by action (TOKEN_ISSUED, MRV_APPROVED, etc.)"),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(role_required([RoleName.ADMIN, RoleName.MRV_OFFICER])),
 ):
     """
     Fetch audit logs (read-only, newest first).
@@ -68,6 +75,7 @@ async def list_audit_logs(
 @router.get("/verify-chain", response_model=ChainVerificationResult)
 async def verify_chain(
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(role_required([RoleName.ADMIN, RoleName.MRV_OFFICER])),
 ):
     """
     Verify integrity of audit chain (detect tampering).

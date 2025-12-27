@@ -64,6 +64,7 @@ async def create_mrv_report(
     await write_audit_log(
         db=db,
         actor=str(payload.created_by),
+        actor_user_id=payload.created_by,
         action="MRV_CREATED",
         entity_type="MRVReport",
         entity_id=str(report.id),
@@ -178,6 +179,7 @@ async def advance_mrv_status(
     await write_audit_log(
         db=db,
         actor=str(actor),
+        actor_user_id=actor,
         action=f"MRV_{target_status.value}",
         entity_type="MRVReport",
         entity_id=str(report.id),

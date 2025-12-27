@@ -37,9 +37,6 @@ coverage/
 .gitignore
 
 # Docker
-Dockerfile*
-docker-compose*
-.dockerignore
 
 # Cache
 .cache/

@@ -10,6 +10,7 @@ from app.models.delivery_verification import (
     compute_gps_hash,
 )
 from app.models.material_token import MaterialToken
+from app.models.project import Project
 from app.schemas.delivery import (
     DeliveryVerificationCreate,
     DeliveryVerificationApprove,
@@ -89,6 +90,7 @@ async def create_delivery_verification(
     await write_audit_log(
         db=db,
         actor=actor_email,
+        actor_user_id=actor_user_id,
         action="DELIVERY_VERIFICATION_CREATED",
         entity_type="DeliveryVerification",
         entity_id=str(verification.id),
@@ -152,6 +154,7 @@ async def approve_delivery_verification(
     await write_audit_log(
         db=db,
         actor=actor_email,
+        actor_user_id=actor_user_id,
         action="DELIVERY_VERIFIED",
         entity_type="DeliveryVerification",
         entity_id=str(verification.id),
@@ -187,6 +190,32 @@ async def get_verification_by_token(
         )
     )
     return result.scalar_one_or_none()
+
+
+async def list_delivery_verifications(
+    db: AsyncSession,
+    *,
+    project_id: UUID | None = None,
+    created_by_user_id: UUID | None = None,
+    limit: int = 200,
+) -> list[DeliveryVerification]:
+    """List delivery verifications, optionally filtered by project and/or project owner."""
+    stmt = (
+        select(DeliveryVerification)
+        .join(MaterialToken, MaterialToken.id == DeliveryVerification.material_token_id)
+        .join(Project, Project.id == MaterialToken.project_id)
+        .order_by(DeliveryVerification.verified_at.desc())
+        .limit(limit)
+    )
+
+    if project_id is not None:
+        stmt = stmt.where(Project.id == project_id)
+
+    if created_by_user_id is not None:
+        stmt = stmt.where(Project.created_by == created_by_user_id)
+
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
 
 
 async def check_delivery_integrity(

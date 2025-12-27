@@ -6,7 +6,8 @@ $ProgressPreference = 'SilentlyContinue'
 # non-fatal warning on stderr about compose file version; don't let that abort.
 try { $PSNativeCommandUseErrorActionPreference = $false } catch {}
 
-$base = 'http://localhost:8000'
+# Backend dev server runs on 8001 in this workspace (8000 is often occupied by Docker Desktop).
+$base = 'http://127.0.0.1:8001'
 
 function Login([string]$email, [string]$password) {
   $body = @{ email = $email; password = $password } | ConvertTo-Json
@@ -19,7 +20,7 @@ $health = Invoke-RestMethod -Uri "${base}/health"
 $health | ConvertTo-Json -Compress | Write-Host
 
 Write-Host "2) Login" -ForegroundColor Cyan
-$admin    = Login 'admin@example.com'    'admin123'
+$admin    = Login 'admin@example.com'    'Admin123!'
 $issuer   = Login 'mrv@example.com'      'mrv123'
 $verifier = Login 'verifier@example.com' 'verifier123'
 $approver = Login 'approver@example.com' 'approver123'

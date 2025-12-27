@@ -40,9 +40,9 @@ export const SupplierRiskScatter: React.FC<SupplierRiskScatterProps> = ({ data }
               border: "1px solid #475569",
               borderRadius: "8px",
             }}
-            formatter={(value: any, name: string) => [
+            formatter={(value: number | string, name: string) => [
               name === "Total Value" ? `$${Number(value).toLocaleString()}` : value,
-              name
+              name,
             ]}
             labelFormatter={(value) => `Supplier: ${value}`}
           />

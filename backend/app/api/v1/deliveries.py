@@ -1,10 +1,12 @@
 """Delivery verification routes: tamper-proof evidence validation."""
 
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, get_current_user, role_required
+from app.models.project import Project
 from app.models.role import RoleName
 from app.models.user import User
 from app.schemas.delivery import (
@@ -18,9 +20,45 @@ from app.services.delivery_service import (
     approve_delivery_verification,
     get_delivery_verification_by_id,
     check_delivery_integrity,
+    list_delivery_verifications,
 )
 
 router = APIRouter(prefix="/api/v1/deliveries", tags=["Delivery Verification"])
+
+
+def _can_view_all(current_user: User) -> bool:
+    if current_user.role is None:
+        return False
+    return current_user.role.name in {RoleName.ADMIN, RoleName.MRV_OFFICER}
+
+
+async def _assert_project_access(db: AsyncSession, *, project_id: UUID, current_user: User) -> None:
+    if _can_view_all(current_user):
+        return
+
+    result = await db.execute(
+        select(Project.id).where(Project.id == project_id, Project.created_by == current_user.id)
+    )
+    if result.scalar_one_or_none() is None:
+        raise HTTPException(status_code=403, detail="Not authorized for this project")
+
+
+@router.get("/", response_model=list[DeliveryVerificationOut])
+async def list_verifications(
+    project_id: UUID | None = Query(None, description="Optional filter: only verifications for a project"),
+    limit: int = Query(200, ge=1, le=500, description="Max verifications to return"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List delivery verifications (read-only visibility for dashboard/screens)."""
+    if project_id is not None:
+        await _assert_project_access(db, project_id=project_id, current_user=current_user)
+        return await list_delivery_verifications(db, project_id=project_id, limit=limit)
+
+    if _can_view_all(current_user):
+        return await list_delivery_verifications(db, limit=limit)
+
+    return await list_delivery_verifications(db, created_by_user_id=current_user.id, limit=limit)
 
 
 @router.post("/verify", response_model=DeliveryVerificationOut, status_code=201)

@@ -3,18 +3,16 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # Base schemas
 class BaseMRVSchema(BaseModel):
     """Base schema for MRV models"""
     
-    class Config:
-        from_attributes = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat() if v else None
-        }
+    model_config = ConfigDict(
+        from_attributes=True,
+    )
 
 
 # Sample schemas

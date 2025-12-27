@@ -37,7 +37,13 @@ class Settings(BaseSettings):
     GRID_EMISSION_FACTOR: float = 0.82
 
     CORS_ORIGINS: List[AnyHttpUrl] | List[str] = Field(
-           default_factory=lambda: ["http://localhost:3000", "http://localhost:5173", "http://localhost:8000"],
+        default_factory=lambda: [
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:8000",
+            "http://127.0.0.1:8001",
+        ],
         description="Allowed CORS origins",
     )
 
@@ -48,7 +54,7 @@ class Settings(BaseSettings):
 
     # Feature gates (default OFF for regulator-grade MRV mode)
     ENABLE_MRV_INGESTION: bool = Field(
-        True,
+        False,
         description="Enable MRV ingestion routes under /api/mrv/* (can be disabled in hardened deployments)",
     )
     ENABLE_CARBON_CREDITS: bool = Field(

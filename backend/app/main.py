@@ -1,6 +1,10 @@
-from fastapi import FastAPI
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 import logging
+import uuid
 
 from app.core.config import settings
 from app.api.v1 import (
@@ -11,6 +15,7 @@ from app.api.v1 import (
     anomalies,
     dashboard,
     upload,
+    evidence,
     emission_factors,
     material_tokens,
     deliveries,
@@ -19,9 +24,25 @@ from app.api.v1 import (
     audit_logs,
 )
 from app.db.session import init_db
+from app.core.audit_context import set_audit_request_context
 
 logger = logging.getLogger("uvicorn.error")
-app = FastAPI(title="Sustainable Infrastructure Dashboard API", version="1.0.0")
+
+
+@asynccontextmanager
+async def lifespan(app_instance: FastAPI):
+    """Async context manager for app startup/shutdown."""
+    # Startup
+    await init_db()
+    yield
+    # Shutdown (cleanup would go here if needed)
+
+
+app = FastAPI(
+    title="Sustainable Infrastructure Dashboard API",
+    version="1.0.0",
+    lifespan=lifespan,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,9 +53,17 @@ app.add_middleware(
 )
 
 
-@app.on_event("startup")
-async def on_startup() -> None:
-    await init_db()
+@app.middleware("http")
+async def audit_request_context_middleware(request: Request, call_next):
+    request_id = uuid.uuid4()
+    ip_address = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    set_audit_request_context(
+        request_id=request_id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+    return await call_next(request)
 
 
 @app.get("/health")
@@ -59,6 +88,7 @@ app.include_router(projects.router, prefix="/api/v1/projects", tags=["projects"]
 app.include_router(anomalies.router, prefix="/api/v1/alerts", tags=["anomalies"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
 app.include_router(upload.router, prefix="/api/v1/upload", tags=["upload"])
+app.include_router(evidence.router)
 
 # Module routers (prefix already defined in router)
 app.include_router(emission_factors.router)

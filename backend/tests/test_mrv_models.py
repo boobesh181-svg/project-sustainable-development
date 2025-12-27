@@ -1,10 +1,15 @@
 """Tests for MRV models."""
 
 import asyncio
+import socket
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 import uuid
 from datetime import datetime, timezone
+
+import pytest
+from sqlalchemy import select
 
 # Ensure backend root is on sys.path
 CURRENT_FILE = Path(__file__).resolve()
@@ -13,10 +18,30 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.db.session import AsyncSessionLocal
+from app.core.config import settings
 from app.mrv.models import (
     MRVSample, MRVTest, Lab, ChainStep, MRVEventLog, MRVSampleStatus
 )
 from app.models.project import Project
+from app.models.role import Role, RoleName
+from app.models.user import User
+
+
+def _db_reachable() -> bool:
+    try:
+        parsed = urlparse(settings.DATABASE_URL)
+        if not parsed.hostname or not parsed.port:
+            return False
+        with socket.create_connection((parsed.hostname, parsed.port), timeout=0.5):
+            return True
+    except Exception:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _db_reachable(),
+    reason="Postgres is not reachable at settings.DATABASE_URL",
+)
 
 
 async def test_mrv_models():
@@ -24,15 +49,34 @@ async def test_mrv_models():
     print("Testing MRV models...")
     
     async with AsyncSessionLocal() as session:
+        # Ensure a valid user exists for Project.created_by FK
+        role_result = await session.execute(select(Role).where(Role.name == RoleName.ADMIN))
+        role = role_result.scalar_one_or_none()
+        if role is None:
+            role = Role(name=RoleName.ADMIN)
+            session.add(role)
+            await session.commit()
+            await session.refresh(role)
+
+        user = User(
+            email=f"test.mrv.models+{uuid.uuid4()}@example.com",
+            hashed_password="not-used-in-test",
+            full_name="MRV Model Test User",
+            is_active=True,
+            role_id=role.id,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+
         # Create a test project first
-        project_uuid = uuid.uuid4()
         project = Project(
             name="Test MRV Project",
             status="active",
             lat=13.0892,
             lon=80.2788,
             budget_usd=1000000.0,
-            created_by=project_uuid,  # Use UUID object for Project model
+            created_by=user.id,
         )
         session.add(project)
         await session.commit()
@@ -115,7 +159,11 @@ async def test_mrv_models():
         print(f"Lab: {lab.name}")
         print(f"Test result: {test.parameter} = {test.value} {test.unit}")
         print(f"Test passed: {test.passed}")
-        print(f"Chain steps: {len(sample.chain_steps)}")
+        # Avoid lazy-loading relationships in async tests (can raise MissingGreenlet)
+        chain_steps = (
+            await session.execute(select(ChainStep).where(ChainStep.sample_id == sample.sample_id))
+        ).scalars().all()
+        print(f"Chain steps: {len(chain_steps)}")
         print(f"Event logs: {len([event_log])}")
         
         # Test to_dict methods

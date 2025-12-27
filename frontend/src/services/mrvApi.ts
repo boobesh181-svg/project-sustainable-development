@@ -1,5 +1,12 @@
 import { apiClient } from './api';
 
+export type QAFlag = {
+  passed: boolean;
+  [key: string]: unknown;
+};
+
+export type QAFlags = Record<string, QAFlag>;
+
 export interface QueueItem {
   test_id: string;
   sample_id: string;
@@ -13,7 +20,7 @@ export interface QueueItem {
   certificate_file?: string;
   sample_type: string;
   sample_collected_at: string;
-  qa_flags: any;
+  qa_flags: QAFlags | null;
   risk_score: number;
   uploaded_by: string;
 }

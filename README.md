@@ -1,5 +1,10 @@
 # Sustainable Construction MRV System
 
+**Canonical backend is in `/backend`.**
+
+- Start here: [README_CANONICAL.md](README_CANONICAL.md)
+- Note: some legacy endpoint examples in this README may not reflect the canonical `/api/v1/*` routes.
+
 A comprehensive Materials, Resources, and Verification (MRV) system for sustainable construction projects with carbon accounting and anti-corruption features.
 
 ## Features
@@ -128,96 +133,78 @@ This creates:
 
 All endpoints require authentication except health checks.
 
-### MRV Sample Management
+This repo supports browser-friendly authentication using **HttpOnly cookies**.
 
-#### Create Sample
+#### Login (sets cookies)
 ```bash
-curl -X POST "http://localhost:8000/api/mrv/samples" \
-  -H "Authorization: Bearer <token>" \
+curl -c cookies.txt \
+  -X POST "http://localhost:8000/api/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"Admin123!"}'
+```
+
+#### Who am I?
+```bash
+curl -b cookies.txt "http://localhost:8000/api/v1/auth/me"
+```
+
+Note: the login response body still includes JWTs for non-browser API clients. The backend accepts either cookies or an `Authorization: Bearer <token>` header.
+
+### Canonical MRV Workflow (Regulator-grade)
+
+The canonical MRV lifecycle lives under `/api/v1/mrv-approval/*` and enforces:
+- role gating + separation of duties
+- immutable-after-lock/retirement rules (DB triggers)
+- versioned emission factor snapshots
+
+#### List projects (scoped by role)
+```bash
+curl -b cookies.txt "http://localhost:8000/api/v1/projects"
+```
+
+#### Create MRV report (DRAFT)
+```bash
+curl -b cookies.txt \
+  -X POST "http://localhost:8000/api/v1/mrv-approval/reports" \
   -H "Content-Type: application/json" \
   -d '{
-    "project_id": "proj-001",
-    "collected_by": "John Smith",
-    "collected_at": "2025-11-15T09:00:00Z",
-    "geotag_lat": 37.7749,
-    "geotag_lon": -122.4194,
-    "sample_type": "concrete",
-    "notes": "Foundation concrete sample"
+    "project_id": "<project_uuid>",
+    "reporting_period": "2025-Q1",
+    "sample_desc": "Quarterly MRV report",
+    "parameter": "co2e_total",
+    "value": "1000",
+    "total_co2e": 1000.0
   }'
 ```
 
-#### Get Sample Details
+#### Advance MRV status
 ```bash
-curl -X GET "http://localhost:8000/api/mrv/samples/SAMP-001" \
-  -H "Authorization: Bearer <token>"
+curl -b cookies.txt \
+  -X POST "http://localhost:8000/api/v1/mrv-approval/reports/<report_uuid>/advance" \
+  -H "Content-Type: application/json" \
+  -d '{"next_status":"SUBMITTED"}'
 ```
 
-#### Submit Sample to Lab
-```bash
-curl -X POST "http://localhost:8000/api/mrv/samples/SAMP-001/submit_lab" \
-  -H "Authorization: Bearer <token>" \
-  -d '{
-    "lab_id": "lab-001",
-    "submitted_at": "2025-11-15T14:00:00Z",
-    "notes": "Submit for compressive strength testing"
-  }'
-```
+### Legacy MRV Ingestion (Feature-gated)
 
-### Test Result Management
-
-#### Upload Test Result
-```bash
-curl -X POST "http://localhost:8000/api/mrv/tests/SAMP-001/upload" \
-  -H "Authorization: Bearer <token>" \
-  -d '{
-    "parameter": "compressive_strength",
-    "value": "30.5",
-    "unit": "MPa",
-    "method": "ASTM C39",
-    "tested_at": "2025-11-20T10:00:00Z",
-    "notes": "Normal compressive strength"
-  }'
-```
-
-#### Review Test Result
-```bash
-curl -X POST "http://localhost:8000/api/mrv/tests/TEST-001/review" \
-  -H "Authorization: Bearer <token>" \
-  -d '{
-    "action": "approve",
-    "reviewer_id": "reviewer123",
-    "comments": "Test approved - meets all requirements"
-  }'
-```
-
-### Carbon Accounting
-
-#### Get Project CO2 Breakdown
-```bash
-curl -X GET "http://localhost:8000/api/mrv/projects/proj-001/co2-breakdown" \
-  -H "Authorization: Bearer <token>"
-```
-
-#### Get MRV Queue
-```bash
-curl -X GET "http://localhost:8000/api/mrv/queue" \
-  -H "Authorization: Bearer <token>"
-```
+The older ingestion router lives under `/api/mrv/*` and is **disabled by default** in hardened deployments.
+To enable it, set `ENABLE_MRV_INGESTION=true` in the backend environment.
 
 ## Security and Access Control
 
 ### User Roles
 
-- **field_technician**: Can create and submit samples
-- **lab_technician**: Can upload test results
-- **mrv_officer**: Can review and approve tests
-- **admin**: Full system access
+- **admin**: Full system access (including approval/lock)
+- **project_manager**: Create/manage projects (scoped)
+- **contractor**: Create MRV drafts and submit
+- **mrv_officer**: Verify submitted MRV reports
+- **supplier**: Supplier-facing visibility (read-only)
+- **citizen**: Public/read-only visibility (read-only)
 
 ### Authentication
 
-- JWT-based authentication
-- Token expiration: 24 hours
-- Automatic token refresh
+- JWT-based auth with **HttpOnly cookie sessions** for browser clients
+- Backend accepts either cookies or `Authorization: Bearer <token>` for API clients
 - Role-based endpoint access
 
 ### Data Protection

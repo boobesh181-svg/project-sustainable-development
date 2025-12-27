@@ -18,7 +18,7 @@ export const Co2TrendChart: React.FC<Props> = ({ data }) => {
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
       <h2 className="mb-3 text-sm font-semibold text-slate-200">
-        12-month COf trend
+        12-month CO₂ trend
       </h2>
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">

@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
+import { useState, useEffect, createContext, useContext, ReactNode, createElement, type ReactElement } from 'react';
 import { apiClient } from '../services/api';
 
 interface User {
@@ -30,54 +30,37 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+export const AuthProvider = ({ children }: AuthProviderProps): ReactElement => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check if user is already logged in
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      fetchUser();
-    } else {
-      setLoading(false);
-    }
+    // Cookie-based session: probe /me on boot.
+    void fetchUser();
   }, []);
 
   const fetchUser = async () => {
     try {
       const response = await apiClient.get('/api/v1/auth/me');
       setUser(response.data);
-    } catch (error) {
-      console.error('Failed to fetch user:', error);
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
+    } catch {
+      setUser(null);
     } finally {
       setLoading(false);
     }
   };
 
   const login = async (email: string, password: string) => {
-    try {
-      const response = await apiClient.post('/api/v1/auth/login', {
-        email,
-        password,
-      });
+    await apiClient.post('/api/v1/auth/login', {
+      email,
+      password,
+    });
 
-      const { access_token, refresh_token, user: userData } = response.data;
-      
-      localStorage.setItem('access_token', access_token);
-      localStorage.setItem('refresh_token', refresh_token);
-      
-      setUser(userData);
-    } catch (error) {
-      throw error;
-    }
+    await fetchUser();
   };
 
   const logout = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
+    void apiClient.post('/api/v1/auth/logout');
     setUser(null);
   };
 
@@ -89,5 +72,5 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     isAuthenticated: !!user,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return createElement(AuthContext.Provider, { value }, children);
 };

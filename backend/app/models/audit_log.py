@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import hashlib
 import uuid
 
-from sqlalchemy import CheckConstraint, DateTime, String, Text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,6 +46,16 @@ class AuditLog(Base):
 
     # Actor (who performed the action)
     actor: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+
+    # Optional FK to user (for strict attribution)
+    actor_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("user.id"), nullable=True
+    )
+
+    # Request metadata (best-effort, may be null for background jobs)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    request_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
 
     # Action (what was done)
     action: Mapped[str] = mapped_column(

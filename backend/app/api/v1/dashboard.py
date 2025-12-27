@@ -1,16 +1,21 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.schemas.kpi import DashboardSummary, DashboardCharts
 from app.services.dashboard_service_v2 import get_dashboard_summary, get_dashboard_charts
 from app.services.dashboard_service import get_comprehensive_kpis
+from app.models.user import User
 
 router = APIRouter()
 
 
 @router.get("/summary", response_model=DashboardSummary)
-async def dashboard_summary(db: AsyncSession = Depends(get_db)) -> DashboardSummary:
+async def dashboard_summary(
+  db: AsyncSession = Depends(get_db),
+  current_user: User = Depends(get_current_user),
+) -> DashboardSummary:
     """
     Get dashboard summary (12 KPIs including CO₂, tokens, anomalies).
     
@@ -20,7 +25,10 @@ async def dashboard_summary(db: AsyncSession = Depends(get_db)) -> DashboardSumm
 
 
 @router.get("/charts", response_model=DashboardCharts)
-async def dashboard_charts(db: AsyncSession = Depends(get_db)) -> DashboardCharts:
+async def dashboard_charts(
+  db: AsyncSession = Depends(get_db),
+  current_user: User = Depends(get_current_user),
+) -> DashboardCharts:
     """
     Get dashboard charts data (trends, material mix, anomaly timeline, etc.).
     
@@ -30,7 +38,10 @@ async def dashboard_charts(db: AsyncSession = Depends(get_db)) -> DashboardChart
 
 
 @router.get("/kpis")
-async def comprehensive_kpis(db: AsyncSession = Depends(get_db)) -> dict:
+async def comprehensive_kpis(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
     """
     Comprehensive KPI aggregation for national-scale dashboards.
     

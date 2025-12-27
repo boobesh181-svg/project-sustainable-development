@@ -17,10 +17,15 @@ export default function Audit() {
           apiClient.verifyAuditChain(),
         ])
         setLogs(Array.isArray(logsData) ? logsData : [])
-        setChainValid(chainData.is_valid === true)
+        setChainValid(chainData.chain_valid === true)
         setError(null)
       } catch (err) {
-        setError(err.message)
+        const msg = err?.message || 'Failed to load audit trail'
+        if (String(msg).includes('403')) {
+          setError('Not authorized to view audit logs. Login as admin or mrv_officer.')
+        } else {
+          setError(msg)
+        }
       } finally {
         setLoading(false)
       }
@@ -30,17 +35,19 @@ export default function Audit() {
   }, [])
 
   const getActionColor = (action) => {
-    if (action.includes('ISSUED') || action.includes('CREATED')) return 'text-blue-600 bg-blue-50'
-    if (action.includes('VERIFIED') || action.includes('APPROVED')) return 'text-green-600 bg-green-50'
-    if (action.includes('LOCKED')) return 'text-purple-600 bg-purple-50'
+    const a = String(action || '')
+    if (a.includes('ISSUED') || a.includes('CREATED')) return 'text-blue-600 bg-blue-50'
+    if (a.includes('VERIFIED') || a.includes('APPROVED')) return 'text-green-600 bg-green-50'
+    if (a.includes('LOCKED')) return 'text-purple-600 bg-purple-50'
     return 'text-gray-600 bg-gray-50'
   }
 
   const getActionIcon = (action) => {
-    if (action.includes('TOKEN')) return '🎫'
-    if (action.includes('DELIVERY')) return '📦'
-    if (action.includes('MRV')) return '📋'
-    if (action.includes('ANOMALY')) return '⚠️'
+    const a = String(action || '')
+    if (a.includes('TOKEN')) return '🎫'
+    if (a.includes('DELIVERY')) return '📦'
+    if (a.includes('MRV')) return '📋'
+    if (a.includes('ANOMALY')) return '⚠️'
     return '📝'
   }
 
@@ -74,7 +81,7 @@ export default function Audit() {
         </div>
       ) : (
         <div className="space-y-3">
-          {logs.map((log, index) => (
+          {logs.map((log) => (
             <div key={log.id} className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow">
               <div className="flex items-start gap-4">
                 <span className="text-2xl">{getActionIcon(log.action)}</span>

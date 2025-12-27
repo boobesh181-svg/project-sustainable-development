@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { apiClient } from '../api/client'
 
-export default function Topbar() {
+export default function Topbar({ user, currentPage, onLogout }) {
   const [dbHealth, setDbHealth] = useState(false)
 
   useEffect(() => {
@@ -23,7 +23,17 @@ export default function Topbar() {
     <header className="bg-white shadow-sm border-b border-gray-200">
       <div className="px-6 py-4 flex justify-between items-center">
         <div>
-          <h2 className="text-xl font-semibold text-gray-800">Dashboard</h2>
+          <h2 className="text-xl font-semibold text-gray-800">
+            {currentPage === 'dashboard'
+              ? 'Dashboard'
+              : currentPage === 'mrv'
+                ? 'MRV Reports'
+                : currentPage === 'anomalies'
+                  ? 'Anomalies'
+                  : currentPage === 'audit'
+                    ? 'Audit Trail'
+                    : 'Dashboard'}
+          </h2>
           <p className="text-sm text-gray-500">Real-time Materials, Resources & Verification</p>
         </div>
 
@@ -35,8 +45,20 @@ export default function Topbar() {
             </span>
           </div>
 
-          <button className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200">
-            👤 Profile
+          <div className="text-sm text-gray-600">
+            {user?.email ? (
+              <span>
+                Signed in as <span className="font-medium text-gray-800">{user.email}</span>
+              </span>
+            ) : null}
+          </div>
+
+          <button
+            type="button"
+            onClick={onLogout}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
+          >
+            Logout
           </button>
         </div>
       </div>

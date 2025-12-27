@@ -19,6 +19,19 @@ interface AnomaliesProps {
   onError?: (error: string) => void;
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "object" && error !== null) {
+    const maybe = error as {
+      response?: { data?: { detail?: unknown } };
+      message?: unknown;
+    };
+    const detail = maybe.response?.data?.detail;
+    if (typeof detail === "string" && detail.trim()) return detail;
+    if (typeof maybe.message === "string" && maybe.message.trim()) return maybe.message;
+  }
+  return fallback;
+}
+
 export const Anomalies: React.FC<AnomaliesProps> = ({ onError }) => {
   const [data, setData] = useState<AnomalyPoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,9 +45,8 @@ export const Anomalies: React.FC<AnomaliesProps> = ({ onError }) => {
         if (charts.anomaly_timeline && Array.isArray(charts.anomaly_timeline)) {
           setData(charts.anomaly_timeline);
         }
-      } catch (error: any) {
-        const msg = error?.response?.data?.detail || error?.message || "Failed to fetch anomalies";
-        onError?.(msg);
+      } catch (error: unknown) {
+        onError?.(getErrorMessage(error, "Failed to fetch anomalies"));
       } finally {
         setLoading(false);
       }

@@ -1,0 +1,20 @@
+# Production-oriented overrides (no bind mounts, safer defaults)
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile production up --build
+
+services:
+  backend:
+    environment:
+      ENV: production
+    volumes: []
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    volumes: []
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/ > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10

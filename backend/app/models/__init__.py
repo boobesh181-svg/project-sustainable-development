@@ -5,6 +5,7 @@ from .material_token import MaterialToken
 from .delivery_verification import DeliveryVerification
 from .emission_factor import EmissionFactor
 from .audit_log import AuditLog
+from .evidence import Evidence
 from .sensor_reading import SensorReading
 from .mrv_report import MRVReport
 from .anomaly_alert import AnomalyAlert
@@ -32,6 +33,7 @@ __all__ = [
     "DeliveryVerification",
     "EmissionFactor",
     "AuditLog",
+    "Evidence",
     "SensorReading",
     "MRVReport",
     "AnomalyAlert",

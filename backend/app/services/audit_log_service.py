@@ -1,10 +1,19 @@
 """Audit log service: ONLY place logs are written (append-only enforcement)."""
 
+from __future__ import annotations
+
+import uuid
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import json
 
 from app.models.audit_log import AuditLog
+from app.core.audit_context import (
+    get_audit_ip_address,
+    get_audit_request_id,
+    get_audit_user_agent,
+)
 
 
 async def write_audit_log(
@@ -14,6 +23,11 @@ async def write_audit_log(
     entity_type: str,
     entity_id: str,
     event_payload: dict,
+    *,
+    actor_user_id: uuid.UUID | None = None,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
+    request_id: uuid.UUID | None = None,
 ) -> AuditLog:
     """
     Write an audit log entry with hash chaining.
@@ -42,7 +56,9 @@ async def write_audit_log(
     """
     # Fetch last audit record to get prev_hash
     result = await db.execute(
-        select(AuditLog).order_by(AuditLog.created_at.desc()).limit(1)
+        select(AuditLog)
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .limit(1)
     )
     last_audit = result.scalar_one_or_none()
 
@@ -58,6 +74,7 @@ async def write_audit_log(
     # Create audit record
     record = AuditLog(
         actor=actor,
+        actor_user_id=actor_user_id,
         action=action,
         entity_type=entity_type,
         entity_id=str(entity_id),
@@ -65,6 +82,9 @@ async def write_audit_log(
         event_hash=event_hash,
         prev_hash=prev_hash,
         chain_hash=chain_hash,
+        ip_address=ip_address or get_audit_ip_address(),
+        user_agent=user_agent or get_audit_user_agent(),
+        request_id=request_id or get_audit_request_id(),
     )
 
     db.add(record)
@@ -113,9 +133,7 @@ async def verify_audit_chain(db: AsyncSession) -> dict:
             "message": str
         }
     """
-    result = await db.execute(
-        select(AuditLog).order_by(AuditLog.created_at.asc())
-    )
+    result = await db.execute(select(AuditLog).order_by(AuditLog.created_at.asc(), AuditLog.id.asc()))
     logs = list(result.scalars().all())
 
     if not logs:

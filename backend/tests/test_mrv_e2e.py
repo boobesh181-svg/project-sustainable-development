@@ -14,6 +14,15 @@ from app.main import app
 from app.mrv.models import MRVSample, MRVTest, MRVSampleStatus, Lab, ChainStep, CarbonLedger
 from app.mrv.carbon import compute_embodied_co2
 from app.models.project import Project
+from app.core.config import settings
+
+
+# This suite exercises legacy MRV ingestion workflows (/api/mrv/*).
+# In regulator-grade deployments, ENABLE_MRV_INGESTION is OFF by default.
+pytestmark = pytest.mark.skipif(
+    not settings.ENABLE_MRV_INGESTION,
+    reason="Legacy MRV ingestion workflow disabled by default",
+)
 
 
 class TestMRVE2EWorkflow:

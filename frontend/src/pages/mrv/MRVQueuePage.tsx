@@ -1,9 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { format } from 'date-fns';
 import { apiClient } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
+
+type QAFlag = {
+  passed: boolean;
+  [key: string]: unknown;
+};
+
+type QAFlags = Record<string, QAFlag>;
+
+function isQAFlag(flag: unknown): flag is QAFlag {
+  if (typeof flag !== 'object' || flag === null) return false;
+  return typeof (flag as { passed?: unknown }).passed === 'boolean';
+}
 
 interface QueueItem {
   test_id: string;
@@ -18,7 +29,7 @@ interface QueueItem {
   certificate_file?: string;
   sample_type: string;
   sample_collected_at: string;
-  qa_flags: any;
+  qa_flags: QAFlags | null;
   risk_score: number;
   uploaded_by: string;
 }
@@ -30,8 +41,6 @@ interface QueueResponse {
 }
 
 const MRVQueuePage: React.FC = () => {
-  const { user } = useAuth();
-  const navigate = useNavigate();
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTest, setSelectedTest] = useState<QueueItem | null>(null);
@@ -51,9 +60,8 @@ const MRVQueuePage: React.FC = () => {
         total: response.data.total_pending,
         highRisk: response.data.high_risk_count
       });
-    } catch (error) {
+    } catch {
       toast.error('Failed to fetch review queue');
-      console.error('Queue fetch error:', error);
     } finally {
       setLoading(false);
     }
@@ -83,7 +91,7 @@ const MRVQueuePage: React.FC = () => {
     return 'Low';
   };
 
-  const getQAFlagColor = (flag: any) => {
+  const getQAFlagColor = (flag: QAFlag | null | undefined) => {
     if (!flag) return 'bg-gray-100 text-gray-800';
     return flag.passed ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
   };
@@ -219,8 +227,8 @@ const MRVQueuePage: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex flex-wrap gap-1">
-                        {item.qa_flags && Object.entries(item.qa_flags).map(([key, flag]: [string, any]) => {
-                          if (key.endsWith('_flag') && typeof flag === 'object') {
+                        {item.qa_flags && Object.entries(item.qa_flags).map(([key, flag]: [string, unknown]) => {
+                          if (key.endsWith('_flag') && isQAFlag(flag)) {
                             return (
                               <span
                                 key={key}
@@ -326,9 +334,8 @@ const MRVReviewModal: React.FC<MRVReviewModalProps> = ({
 
       toast.success(`Test ${action}d successfully`);
       onReviewComplete();
-    } catch (error) {
+    } catch {
       toast.error(`Failed to ${action} test`);
-      console.error('Review error:', error);
     } finally {
       setLoading(false);
     }
@@ -398,8 +405,8 @@ const MRVReviewModal: React.FC<MRVReviewModalProps> = ({
           <div className="mb-6">
             <h4 className="font-medium text-gray-900 mb-2">QA Flags</h4>
             <div className="space-y-2">
-              {Object.entries(test.qa_flags).map(([key, flag]: [string, any]) => {
-                if (key.endsWith('_flag') && typeof flag === 'object') {
+              {Object.entries(test.qa_flags).map(([key, flag]: [string, unknown]) => {
+                if (key.endsWith('_flag') && isQAFlag(flag)) {
                   return (
                     <div key={key} className="flex items-center justify-between p-2 bg-gray-50 rounded">
                       <span className="text-sm font-medium">{key.replace('_flag', '')}</span>

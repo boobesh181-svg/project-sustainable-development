@@ -15,9 +15,9 @@ export function resolveApiBase(): string {
     "";
 
   if (import.meta.env.DEV) {
-    const host = window.location.hostname;
-    const isLocalHost = host === "localhost" || host === "127.0.0.1";
-    if (!isLocalHost) return "";
+    // In dev, always use relative URLs so the Vite dev-server proxy handles API calls.
+    // This avoids CORS and also works when testing from LAN devices.
+    return "";
   }
 
   return envBase;

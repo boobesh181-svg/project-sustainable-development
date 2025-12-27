@@ -13,6 +13,14 @@ from app.main import app
 from app.mrv.models import MRVSample, MRVTest, MRVSampleStatus, Lab, ChainStep
 from app.mrv.carbon import compute_embodied_co2, calculate_project_co2_breakdown
 from app.models.project import Project
+from app.core.config import settings
+
+
+# Legacy MRV ingestion workflow is feature-gated.
+pytestmark = pytest.mark.skipif(
+    not settings.ENABLE_MRV_INGESTION,
+    reason="Legacy MRV ingestion workflow disabled by default",
+)
 
 
 class TestMRVIntegration:

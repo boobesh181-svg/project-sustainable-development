@@ -166,8 +166,17 @@ class Lab(Base):
     )
     
     # Relationships
-    tests: Mapped[list[MRVTest]] = relationship("MRVTest", back_populates="lab")
-    mrv_tests: Mapped[list[MRVTest]] = relationship("MRVTest", back_populates="lab")
+    # NOTE: Both names exist for compatibility; they point to the same FK.
+    tests: Mapped[list[MRVTest]] = relationship(
+        "MRVTest",
+        back_populates="lab",
+        overlaps="mrv_tests",
+    )
+    mrv_tests: Mapped[list[MRVTest]] = relationship(
+        "MRVTest",
+        back_populates="lab",
+        overlaps="tests",
+    )
     
     def __repr__(self) -> str:
         return f"<Lab(lab_id='{self.lab_id}', name='{self.name}')>"

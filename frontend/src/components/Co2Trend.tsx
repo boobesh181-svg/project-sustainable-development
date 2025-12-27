@@ -22,6 +22,19 @@ interface Co2TrendProps {
   onError?: (error: string) => void;
 }
 
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "object" && error !== null) {
+    const maybe = error as {
+      response?: { data?: { detail?: unknown } };
+      message?: unknown;
+    };
+    const detail = maybe.response?.data?.detail;
+    if (typeof detail === "string" && detail.trim()) return detail;
+    if (typeof maybe.message === "string" && maybe.message.trim()) return maybe.message;
+  }
+  return fallback;
+}
+
 export const Co2Trend: React.FC<Co2TrendProps> = ({ onError }) => {
   const [data, setData] = useState<Co2TrendPoint[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,9 +48,8 @@ export const Co2Trend: React.FC<Co2TrendProps> = ({ onError }) => {
         if (charts.co2_trend && Array.isArray(charts.co2_trend)) {
           setData(charts.co2_trend);
         }
-      } catch (error: any) {
-        const msg = error?.response?.data?.detail || error?.message || "Failed to fetch CO₂ trend";
-        onError?.(msg);
+      } catch (error: unknown) {
+        onError?.(getErrorMessage(error, "Failed to fetch CO₂ trend"));
       } finally {
         setLoading(false);
       }

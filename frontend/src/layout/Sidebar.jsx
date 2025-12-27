@@ -1,6 +1,7 @@
 export default function Sidebar({ currentPage, onPageChange }) {
   const pages = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
+    { id: 'projects', label: 'Projects', icon: '🏗️' },
     { id: 'mrv', label: 'MRV Reports', icon: '📋' },
     { id: 'anomalies', label: 'Anomalies', icon: '⚠️' },
     { id: 'audit', label: 'Audit Trail', icon: '📜' },

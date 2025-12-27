@@ -1,6 +1,6 @@
 from typing import Annotated, List
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,16 +11,25 @@ from app.services.user_service import get_user_by_id
 from app.models.user import User
 
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
 CurrentUser = Annotated[User, Depends(lambda: None)]  # placeholder for type alias
 
 
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    request: Request,
+    token: str | None = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    if not token:
+        token = request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+
     try:
         payload = decode_token(token, token_type="access")
     except ValueError:
@@ -44,7 +53,8 @@ async def get_current_user(
 
 def role_required(allowed_roles: List[RoleName]):
     async def _checker(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role is None or current_user.role.name not in [r.value for r in allowed_roles]:
+        allowed = set(allowed_roles)
+        if current_user.role is None or current_user.role.name not in allowed:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions")
         return current_user
 

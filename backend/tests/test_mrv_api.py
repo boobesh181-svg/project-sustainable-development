@@ -9,9 +9,18 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.main import app
+from app.core.config import settings
 from app.mrv.models import MRVSample, MRVSampleStatus, Lab, ChainStep, MRVTest
 from app.models.project import Project
 from app.models.user import User
+
+
+# The MRV ingestion router is legacy and disabled by default (ENABLE_MRV_INGESTION=False).
+# These tests should only run when explicitly enabled.
+pytestmark = pytest.mark.skipif(
+    not settings.ENABLE_MRV_INGESTION,
+    reason="Legacy MRV ingestion router disabled by default",
+)
 
 
 @pytest.fixture
@@ -23,34 +32,35 @@ def client():
 @pytest.fixture
 def mock_user_contractor():
     """Mock contractor user."""
-    return User(
-        id="user123",
-        email="contractor@test.com",
-        role="contractor",
-        is_active=True
-    )
+    user = Mock(spec=User)
+    user.id = "user123"
+    user.email = "contractor@test.com"
+    # MRV ingestion routes historically used string role checks
+    user.role = "contractor"
+    user.is_active = True
+    return user
 
 
 @pytest.fixture
 def mock_user_lab():
     """Mock lab user."""
-    return User(
-        id="lab123",
-        email="lab@test.com",
-        role="lab",
-        is_active=True
-    )
+    user = Mock(spec=User)
+    user.id = "lab123"
+    user.email = "lab@test.com"
+    user.role = "lab"
+    user.is_active = True
+    return user
 
 
 @pytest.fixture
 def mock_project():
     """Mock project."""
-    return Project(
-        id="proj123",
-        name="Test Project",
-        status="active",
-        created_by="user123"
-    )
+    project = Mock(spec=Project)
+    project.id = "proj123"
+    project.name = "Test Project"
+    project.status = "active"
+    project.created_by = "user123"
+    return project
 
 
 @pytest.fixture

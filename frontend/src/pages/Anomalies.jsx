@@ -6,18 +6,27 @@ export default function Anomalies() {
   const [anomalies, setAnomalies] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [projectId, setProjectId] = useState(null)
 
   useEffect(() => {
     const loadAnomalies = async () => {
       try {
         setLoading(true)
-        // For demo, load anomalies from first project
-        // In production, this would be parameterized
-        const data = await apiClient.fetchAnomalies('00000000-0000-0000-0000-000000000001')
+        const projects = await apiClient.fetchProjects(1)
+        const first = Array.isArray(projects) ? projects[0] : null
+        if (!first?.id) {
+          setProjectId(null)
+          setAnomalies([])
+          setError(null)
+          return
+        }
+
+        setProjectId(first.id)
+        const data = await apiClient.fetchAnomalies(first.id)
         setAnomalies(Array.isArray(data) ? data : [])
         setError(null)
       } catch (err) {
-        // Silently fail if no anomalies endpoint
+        setError(err?.message || 'Failed to load anomalies')
         setAnomalies([])
       } finally {
         setLoading(false)
@@ -53,6 +62,7 @@ export default function Anomalies() {
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Anomaly Detection</h1>
         <p className="text-gray-600 mt-2">Automated rules engine detects suspicious patterns</p>
+        {projectId && <p className="text-xs text-gray-500 mt-1">Project: {projectId}</p>}
       </div>
 
       {anomalies.length === 0 ? (
@@ -70,11 +80,13 @@ export default function Anomalies() {
                 <div className="flex items-start gap-4">
                   <span className="text-2xl">{getSeverityIcon(anomaly.severity)}</span>
                   <div>
-                    <h3 className="font-semibold text-gray-900">{anomaly.rule_name || 'Unknown Rule'}</h3>
+                    <h3 className="font-semibold text-gray-900">{anomaly.rule_code || 'Unknown Rule'}</h3>
                     <p className="text-sm text-gray-600 mt-1">{anomaly.description || 'No description'}</p>
                     <div className="mt-2 text-xs text-gray-500">
-                      <p>Entity: {anomaly.entity_type} • ID: {anomaly.entity_id?.slice(0, 8)}...</p>
-                      <p>Triggered: {new Date(anomaly.created_at).toLocaleString()}</p>
+                      <p>
+                        Token: {anomaly.token_uid ? String(anomaly.token_uid).slice(0, 12) + '…' : '—'}
+                      </p>
+                      <p>Detected: {anomaly.detected_at ? new Date(anomaly.detected_at).toLocaleString() : '—'}</p>
                     </div>
                   </div>
                 </div>

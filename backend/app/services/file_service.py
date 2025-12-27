@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import hashlib
 import os
 from pathlib import Path
 from typing import Literal
@@ -7,6 +10,31 @@ from fastapi import UploadFile
 from app.core.config import settings
 
 UploadType = Literal["evidence", "mrv", "whistleblower"]
+
+
+def sha256_bytes(contents: bytes) -> str:
+    return hashlib.sha256(contents).hexdigest()
+
+
+async def save_upload_with_hash(file: UploadFile, upload_type: UploadType) -> dict:
+    if is_forbidden_extension(file.filename):
+        raise ValueError("Forbidden file type")
+
+    safe_name = sanitize_filename(file.filename)
+    target_dir = Path(settings.UPLOAD_ROOT) / upload_type
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / safe_name
+
+    contents = await file.read()
+    target_path.write_bytes(contents)
+
+    return {
+        "path": str(target_path),
+        "sha256": sha256_bytes(contents),
+        "size_bytes": len(contents),
+        "content_type": getattr(file, "content_type", None),
+        "original_filename": file.filename,
+    }
 
 
 def sanitize_filename(filename: str) -> str:
