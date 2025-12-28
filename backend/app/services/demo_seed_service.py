@@ -117,6 +117,64 @@ async def ensure_demo_seeded(db: AsyncSession) -> None:
         if ef_cement is None or ef_steel is None:
             return
 
+        # Company overview (company-summary) only counts REDEEMED tokens.
+        redeemed_tokens = (
+            await db.execute(
+                select(func.count(MaterialToken.id)).where(
+                    MaterialToken.project_id == project.id,
+                    MaterialToken.redeemed.is_(True),
+                )
+            )
+        ).scalar() or 0
+        if int(redeemed_tokens) == 0:
+            now = datetime.now(timezone.utc)
+            demo_tokens = [
+                MaterialToken(
+                    project_id=project.id,
+                    material_code="CEMENT_OPC",
+                    material_name="Cement (OPC)",
+                    quantity=Decimal("900.000"),
+                    unit="kg",
+                    supplier_name="DEMO Supplier",
+                    issued_by=_DEMO_ACTOR,
+                    redeemed=True,
+                    redeemed_at=now,
+                    delivery_lat=project.lat,
+                    delivery_lon=project.lon,
+                    supplier_invoice_ref="DEMO-INV-001",
+                ),
+                MaterialToken(
+                    project_id=project.id,
+                    material_code="STEEL_REBAR",
+                    material_name="Steel Rebar",
+                    quantity=Decimal("350.000"),
+                    unit="kg",
+                    supplier_name="DEMO Supplier",
+                    issued_by=_DEMO_ACTOR,
+                    redeemed=True,
+                    redeemed_at=now,
+                    delivery_lat=project.lat,
+                    delivery_lon=project.lon,
+                    supplier_invoice_ref="DEMO-INV-002",
+                ),
+                MaterialToken(
+                    project_id=project.id,
+                    material_code="CEMENT_OPC",
+                    material_name="Cement (OPC)",
+                    quantity=Decimal("650.000"),
+                    unit="kg",
+                    supplier_name="Alt Demo Supplier",
+                    issued_by=_DEMO_ACTOR,
+                    redeemed=True,
+                    redeemed_at=now,
+                    delivery_lat=project.lat,
+                    delivery_lon=project.lon,
+                    supplier_invoice_ref="DEMO-INV-003",
+                ),
+            ]
+            for t in demo_tokens:
+                db.add(t)
+
         # Ensure demo has some operational data so dashboard doesn't show zeros.
         existing_energy = (
             await db.execute(
@@ -554,6 +612,64 @@ async def ensure_demo_seeded(db: AsyncSession) -> None:
     db.add(token)
     await db.commit()
     await db.refresh(token)
+
+    # Redeemed tokens for company overview emissions (requires redeemed_at + delivery coords).
+    redeemed_count = (
+        await db.execute(
+            select(func.count(MaterialToken.id)).where(
+                MaterialToken.project_id == project.id,
+                MaterialToken.redeemed.is_(True),
+            )
+        )
+    ).scalar() or 0
+    if int(redeemed_count) == 0:
+        now = datetime.now(timezone.utc)
+        t1 = MaterialToken(
+            project_id=project.id,
+            material_code="CEMENT_OPC",
+            material_name="Cement (OPC)",
+            quantity=Decimal("900.000"),
+            unit="kg",
+            supplier_name=supplier.name,
+            issued_by=_DEMO_ACTOR,
+            redeemed=True,
+            redeemed_at=now,
+            delivery_lat=project.lat,
+            delivery_lon=project.lon,
+            supplier_invoice_ref="DEMO-INV-001",
+        )
+        t2 = MaterialToken(
+            project_id=project.id,
+            material_code="STEEL_REBAR",
+            material_name="Steel Rebar",
+            quantity=Decimal("350.000"),
+            unit="kg",
+            supplier_name=supplier.name,
+            issued_by=_DEMO_ACTOR,
+            redeemed=True,
+            redeemed_at=now,
+            delivery_lat=project.lat,
+            delivery_lon=project.lon,
+            supplier_invoice_ref="DEMO-INV-002",
+        )
+        t3 = MaterialToken(
+            project_id=project.id,
+            material_code="CEMENT_OPC",
+            material_name="Cement (OPC)",
+            quantity=Decimal("650.000"),
+            unit="kg",
+            supplier_name="Alt Demo Supplier",
+            issued_by=_DEMO_ACTOR,
+            redeemed=True,
+            redeemed_at=now,
+            delivery_lat=project.lat,
+            delivery_lon=project.lon,
+            supplier_invoice_ref="DEMO-INV-003",
+        )
+        db.add(t1)
+        db.add(t2)
+        db.add(t3)
+        await db.commit()
 
     await write_audit_log(
         db,
