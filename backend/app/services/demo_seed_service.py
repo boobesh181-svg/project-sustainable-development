@@ -81,13 +81,108 @@ async def ensure_demo_seeded(db: AsyncSession) -> None:
     This is idempotent: if a DEMO project already exists, it does nothing.
     """
 
-    # If any DEMO project exists, assume seeding was already done.
-    demo_exists = (
-        await db.execute(
-            select(func.count(Project.id)).where(Project.name.ilike("DEMO%"))
-        )
-    ).scalar()
-    if (demo_exists or 0) > 0:
+    TARGET_MRV_REPORTS = 12
+
+    # If a DEMO project exists, top-up seeded records as needed.
+    project = (
+        await db.execute(select(Project).where(Project.name.ilike("DEMO%")).order_by(Project.created_at.asc()))
+    ).scalars().first()
+    if project is not None:
+        pm = (await db.execute(select(User).where(User.email == "pm@example.com"))).scalar_one_or_none()
+        mrv_officer = (
+            await db.execute(select(User).where(User.email == "verifier@example.com"))
+        ).scalar_one_or_none()
+
+        if pm is None or mrv_officer is None:
+            return
+
+        ef_cement = (
+            await db.execute(
+                select(EmissionFactor)
+                .where(EmissionFactor.material_code == "CEMENT_OPC", EmissionFactor.is_active.is_(True))
+                .order_by(EmissionFactor.version.desc())
+            )
+        ).scalars().first()
+        ef_steel = (
+            await db.execute(
+                select(EmissionFactor)
+                .where(EmissionFactor.material_code == "STEEL_REBAR", EmissionFactor.is_active.is_(True))
+                .order_by(EmissionFactor.version.desc())
+            )
+        ).scalars().first()
+
+        if ef_cement is None or ef_steel is None:
+            return
+
+        existing_count = (
+            await db.execute(select(func.count(MRVReport.id)).where(MRVReport.project_id == project.id))
+        ).scalar() or 0
+
+        if int(existing_count) >= TARGET_MRV_REPORTS:
+            return
+
+        to_create = TARGET_MRV_REPORTS - int(existing_count)
+        for i in range(to_create):
+            idx = int(existing_count) + i + 1
+            ef = ef_cement if idx % 2 == 0 else ef_steel
+            quantity_kg = Decimal("250") if ef.material_code == "CEMENT_OPC" else Decimal("120")
+            total_co2e = (Decimal(str(ef.co2e_per_unit)) * quantity_kg).quantize(Decimal("0.000001"))
+
+            # Cycle through early lifecycle states to keep demo safe and editable.
+            status_cycle = [MRVStatus.DRAFT, MRVStatus.SUBMITTED, MRVStatus.VERIFIED]
+            status = status_cycle[idx % len(status_cycle)]
+
+            report = MRVReport(
+                project_id=project.id,
+                reporting_period="2025-Q4",
+                emission_factor_id=ef.id,
+                sample_desc=f"Demo sample #{idx}: synthetic material batch ({ef.material_name})",
+                parameter=f"{ef.material_name} mass",
+                value=f"{quantity_kg} kg",
+                total_co2e=total_co2e,
+                certificate_path=None,
+                emission_factor_version_snapshot=str(ef.version),
+                emission_factor_hash_snapshot=ef.factor_hash,
+                emission_factor_value_snapshot=ef.co2e_per_unit,
+                status=status,
+                created_by=pm.id,
+                verified_by=mrv_officer.id if status == MRVStatus.VERIFIED else None,
+                approved_by=None,
+            )
+            db.add(report)
+            await db.flush()
+
+            await write_audit_log(
+                db,
+                actor=_DEMO_ACTOR,
+                actor_user_id=pm.id,
+                action="MRV_CREATED",
+                entity_type="MRVReport",
+                entity_id=str(report.id),
+                event_payload={"status": status.value, "project_id": str(project.id)},
+            )
+            if status == MRVStatus.SUBMITTED:
+                await write_audit_log(
+                    db,
+                    actor=_DEMO_ACTOR,
+                    actor_user_id=pm.id,
+                    action="MRV_SUBMITTED",
+                    entity_type="MRVReport",
+                    entity_id=str(report.id),
+                    event_payload={"status": status.value, "project_id": str(project.id)},
+                )
+            if status == MRVStatus.VERIFIED:
+                await write_audit_log(
+                    db,
+                    actor=_DEMO_ACTOR,
+                    actor_user_id=mrv_officer.id,
+                    action="MRV_VERIFIED",
+                    entity_type="MRVReport",
+                    entity_id=str(report.id),
+                    event_payload={"status": status.value, "project_id": str(project.id)},
+                )
+
+        await db.commit()
         return
 
     # Create roles and demo users

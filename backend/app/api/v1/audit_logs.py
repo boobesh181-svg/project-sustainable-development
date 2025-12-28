@@ -1,9 +1,11 @@
 """Audit logs routes: read-only access for audit trail visibility."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, ConfigDict
 from datetime import datetime
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_db, role_required
 from app.models.role import RoleName
@@ -17,9 +19,9 @@ from app.services.audit_log_service import (
 # Response schemas
 class AuditLogOut(BaseModel):
     """Audit log entry response."""
-    id: str
+    id: UUID
     actor: str
-    actor_user_id: str | None = None
+    actor_user_id: UUID | None = None
     action: str
     entity_type: str
     entity_id: str
@@ -28,7 +30,7 @@ class AuditLogOut(BaseModel):
     chain_hash: str
     ip_address: str | None = None
     user_agent: str | None = None
-    request_id: str | None = None
+    request_id: UUID | None = None
     created_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
