@@ -11,7 +11,7 @@ Important:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from sqlalchemy import select, func
@@ -25,6 +25,8 @@ from app.models.project import Project, ProjectStatus
 from app.models.emission_factor import EmissionFactor
 from app.models.mrv_report import MRVReport, MRVStatus
 from app.models.material_token import MaterialToken
+from app.models.public_metrics import PublicMetrics
+from app.models.sensor_reading import SensorReading, SensorType
 from app.services.audit_log_service import write_audit_log
 
 
@@ -88,12 +90,13 @@ async def ensure_demo_seeded(db: AsyncSession) -> None:
         await db.execute(select(Project).where(Project.name.ilike("DEMO%")).order_by(Project.created_at.asc()))
     ).scalars().first()
     if project is not None:
+        admin = (await db.execute(select(User).where(User.email == "admin@example.com"))).scalar_one_or_none()
         pm = (await db.execute(select(User).where(User.email == "pm@example.com"))).scalar_one_or_none()
         mrv_officer = (
             await db.execute(select(User).where(User.email == "verifier@example.com"))
         ).scalar_one_or_none()
 
-        if pm is None or mrv_officer is None:
+        if admin is None or pm is None or mrv_officer is None:
             return
 
         ef_cement = (
@@ -114,11 +117,113 @@ async def ensure_demo_seeded(db: AsyncSession) -> None:
         if ef_cement is None or ef_steel is None:
             return
 
+        # Ensure demo has some operational data so dashboard doesn't show zeros.
+        existing_energy = (
+            await db.execute(
+                select(func.count(SensorReading.id)).where(
+                    SensorReading.project_id == project.id,
+                    SensorReading.sensor_type == SensorType.ENERGY,
+                )
+            )
+        ).scalar() or 0
+        if int(existing_energy) == 0:
+            now = datetime.now(timezone.utc)
+            mid_month = now.replace(day=15, hour=0, minute=0, second=0, microsecond=0)
+            for i in range(12):
+                ts = mid_month - timedelta(days=30 * i)
+                value_kwh = (Decimal("20000") + (Decimal(i) * Decimal("1250"))).quantize(Decimal("0.001"))
+                db.add(
+                    SensorReading(
+                        project_id=project.id,
+                        sensor_type=SensorType.ENERGY,
+                        value=value_kwh,
+                        unit="kWh",
+                        ts=ts,
+                        lat=project.lat,
+                        lon=project.lon,
+                    )
+                )
+
         existing_count = (
             await db.execute(select(func.count(MRVReport.id)).where(MRVReport.project_id == project.id))
         ).scalar() or 0
 
         if int(existing_count) >= TARGET_MRV_REPORTS:
+            # Ensure at least one APPROVED report exists so embodied totals/charts are non-zero.
+            approved_count = (
+                await db.execute(
+                    select(func.count(MRVReport.id)).where(
+                        MRVReport.project_id == project.id,
+                        MRVReport.status.in_([MRVStatus.APPROVED, MRVStatus.LOCKED]),
+                    )
+                )
+            ).scalar() or 0
+            if int(approved_count) == 0:
+                quantity_kg = Decimal("800")
+                total_co2e = (Decimal(str(ef_cement.co2e_per_unit)) * quantity_kg).quantize(Decimal("0.000001"))
+                approved = MRVReport(
+                    project_id=project.id,
+                    reporting_period="2025-Q4",
+                    emission_factor_id=ef_cement.id,
+                    sample_desc="Demo approved sample: synthetic batch for non-zero dashboard totals",
+                    parameter=f"{ef_cement.material_name} mass",
+                    value=f"{quantity_kg} kg",
+                    total_co2e=total_co2e,
+                    certificate_path=None,
+                    emission_factor_version_snapshot=str(ef_cement.version),
+                    emission_factor_hash_snapshot=ef_cement.factor_hash,
+                    emission_factor_value_snapshot=ef_cement.co2e_per_unit,
+                    status=MRVStatus.APPROVED,
+                    created_by=pm.id,
+                    verified_by=mrv_officer.id,
+                    approved_by=admin.id,
+                )
+                db.add(approved)
+                await db.flush()
+                await write_audit_log(
+                    db,
+                    actor=_DEMO_ACTOR,
+                    actor_user_id=admin.id,
+                    action="MRV_APPROVED",
+                    entity_type="MRVReport",
+                    entity_id=str(approved.id),
+                    event_payload={"status": approved.status.value, "project_id": str(project.id)},
+                )
+
+            # Still ensure public metrics are present for dashboard CO2 saved.
+            verified_total = (
+                await db.execute(
+                    select(func.coalesce(func.sum(MRVReport.total_co2e), 0)).where(
+                        MRVReport.project_id == project.id,
+                        MRVReport.status.in_([MRVStatus.APPROVED, MRVStatus.LOCKED]),
+                    )
+                )
+            ).scalar_one() or 0
+            if Decimal(str(verified_total)) == 0:
+                verified_total = (
+                    await db.execute(
+                        select(func.coalesce(func.sum(MRVReport.total_co2e), 0)).where(
+                            MRVReport.project_id == project.id,
+                            MRVReport.status == MRVStatus.VERIFIED,
+                        )
+                    )
+                ).scalar_one() or 0
+
+            saved_total = (Decimal(str(verified_total)) * Decimal("0.12")).quantize(Decimal("0.000001"))
+
+            pm_row = (
+                await db.execute(select(PublicMetrics).where(PublicMetrics.project_id == project.id))
+            ).scalar_one_or_none()
+            if pm_row is None:
+                db.add(
+                    PublicMetrics(
+                        project_id=project.id,
+                        total_co2_saved_t=saved_total,
+                        verified_co2_t=Decimal(str(verified_total)).quantize(Decimal("0.000001")),
+                        total_materials_t=Decimal("0"),
+                    )
+                )
+            await db.commit()
             return
 
         to_create = TARGET_MRV_REPORTS - int(existing_count)
@@ -181,6 +286,79 @@ async def ensure_demo_seeded(db: AsyncSession) -> None:
                     entity_id=str(report.id),
                     event_payload={"status": status.value, "project_id": str(project.id)},
                 )
+
+        await db.commit()
+
+        # Ensure at least one APPROVED report exists so embodied totals/charts are non-zero.
+        approved_count = (
+            await db.execute(
+                select(func.count(MRVReport.id)).where(
+                    MRVReport.project_id == project.id,
+                    MRVReport.status.in_([MRVStatus.APPROVED, MRVStatus.LOCKED]),
+                )
+            )
+        ).scalar() or 0
+        if int(approved_count) == 0:
+            quantity_kg = Decimal("800")
+            total_co2e = (Decimal(str(ef_cement.co2e_per_unit)) * quantity_kg).quantize(Decimal("0.000001"))
+            approved = MRVReport(
+                project_id=project.id,
+                reporting_period="2025-Q4",
+                emission_factor_id=ef_cement.id,
+                sample_desc="Demo approved sample: synthetic batch for non-zero dashboard totals",
+                parameter=f"{ef_cement.material_name} mass",
+                value=f"{quantity_kg} kg",
+                total_co2e=total_co2e,
+                certificate_path=None,
+                emission_factor_version_snapshot=str(ef_cement.version),
+                emission_factor_hash_snapshot=ef_cement.factor_hash,
+                emission_factor_value_snapshot=ef_cement.co2e_per_unit,
+                status=MRVStatus.APPROVED,
+                created_by=pm.id,
+                verified_by=mrv_officer.id,
+                approved_by=admin.id,
+            )
+            db.add(approved)
+            await db.flush()
+            await write_audit_log(
+                db,
+                actor=_DEMO_ACTOR,
+                actor_user_id=admin.id,
+                action="MRV_APPROVED",
+                entity_type="MRVReport",
+                entity_id=str(approved.id),
+                event_payload={"status": approved.status.value, "project_id": str(project.id)},
+            )
+            await db.commit()
+
+        # Public dashboard metrics used by dashboard_service_v2.
+        verified_total = (
+            await db.execute(
+                select(func.coalesce(func.sum(MRVReport.total_co2e), 0)).where(
+                    MRVReport.project_id == project.id,
+                    MRVReport.status.in_([MRVStatus.APPROVED, MRVStatus.LOCKED]),
+                )
+            )
+        ).scalar_one() or 0
+        saved_total = (Decimal(str(verified_total)) * Decimal("0.12")).quantize(Decimal("0.000001"))
+
+        pm_row = (
+            await db.execute(select(PublicMetrics).where(PublicMetrics.project_id == project.id))
+        ).scalar_one_or_none()
+        if pm_row is None:
+            db.add(
+                PublicMetrics(
+                    project_id=project.id,
+                    total_co2_saved_t=saved_total,
+                    verified_co2_t=Decimal(str(verified_total)).quantize(Decimal("0.000001")),
+                    total_materials_t=Decimal("0"),
+                )
+            )
+        else:
+            if Decimal(str(pm_row.total_co2_saved_t or 0)) == 0 and saved_total > 0:
+                pm_row.total_co2_saved_t = saved_total
+            if Decimal(str(pm_row.verified_co2_t or 0)) == 0 and Decimal(str(verified_total)) > 0:
+                pm_row.verified_co2_t = Decimal(str(verified_total)).quantize(Decimal("0.000001"))
 
         await db.commit()
         return
@@ -389,3 +567,55 @@ async def ensure_demo_seeded(db: AsyncSession) -> None:
 
     # Supplier user exists for portal login
     _ = supplier_user
+
+    # Demo-only public metrics + a small energy timeseries so the dashboard isn't all zeros.
+    pm_row = (
+        await db.execute(select(PublicMetrics).where(PublicMetrics.project_id == project.id))
+    ).scalar_one_or_none()
+    if pm_row is None:
+        # Use VERIFIED report total as a stand-in for verified CO2 (no compliance claim; DEMO-only).
+        verified_total = (
+            await db.execute(
+                select(func.coalesce(func.sum(MRVReport.total_co2e), 0)).where(
+                    MRVReport.project_id == project.id,
+                    MRVReport.status == MRVStatus.VERIFIED,
+                )
+            )
+        ).scalar_one() or 0
+        saved_total = (Decimal(str(verified_total)) * Decimal("0.12")).quantize(Decimal("0.000001"))
+        db.add(
+            PublicMetrics(
+                project_id=project.id,
+                total_co2_saved_t=saved_total,
+                verified_co2_t=Decimal(str(verified_total)).quantize(Decimal("0.000001")),
+                total_materials_t=Decimal("0"),
+            )
+        )
+
+    existing_energy = (
+        await db.execute(
+            select(func.count(SensorReading.id)).where(
+                SensorReading.project_id == project.id,
+                SensorReading.sensor_type == SensorType.ENERGY,
+            )
+        )
+    ).scalar() or 0
+    if int(existing_energy) == 0:
+        now = datetime.now(timezone.utc)
+        mid_month = now.replace(day=15, hour=0, minute=0, second=0, microsecond=0)
+        for i in range(12):
+            ts = mid_month - timedelta(days=30 * i)
+            value_kwh = (Decimal("20000") + (Decimal(i) * Decimal("1250"))).quantize(Decimal("0.001"))
+            db.add(
+                SensorReading(
+                    project_id=project.id,
+                    sensor_type=SensorType.ENERGY,
+                    value=value_kwh,
+                    unit="kWh",
+                    ts=ts,
+                    lat=project.lat,
+                    lon=project.lon,
+                )
+            )
+
+    await db.commit()
