@@ -2,21 +2,27 @@ import { useState, useEffect } from 'react'
 import Sidebar from './layout/Sidebar'
 import Topbar from './layout/Topbar'
 import Dashboard from './pages/Dashboard'
+import CompanyOverview from './pages/CompanyOverview'
 import Projects from './pages/Projects'
 import MRV from './pages/MRV'
 import Anomalies from './pages/Anomalies'
 import Audit from './pages/Audit'
 import Loading from './components/Loading'
 import Login from './pages/Login'
+import SupplierPortal from './pages/SupplierPortal'
 import { apiClient } from './api/client'
 
 function App() {
-  const [currentPage, setCurrentPage] = useState('dashboard')
+  const [currentPage, setCurrentPage] = useState('company')
   const [loading, setLoading] = useState(true)
   const [user, setUser] = useState(null)
 
   const renderPage = () => {
     switch (currentPage) {
+      case 'supplier':
+        return <SupplierPortal />
+      case 'company':
+        return <CompanyOverview />
       case 'dashboard':
         return <Dashboard />
       case 'projects':
@@ -28,7 +34,7 @@ function App() {
       case 'audit':
         return <Audit />
       default:
-        return <Dashboard />
+        return <CompanyOverview />
     }
   }
 
@@ -37,6 +43,7 @@ function App() {
       try {
         const me = await apiClient.fetchMe()
         setUser(me)
+        setCurrentPage(me?.role === 'supplier' ? 'supplier' : 'company')
       } catch {
         setUser(null)
       } finally {
@@ -51,19 +58,22 @@ function App() {
       await apiClient.logout()
     } finally {
       setUser(null)
-      setCurrentPage('dashboard')
+      setCurrentPage('company')
     }
   }
 
   if (loading) return <Loading />
 
   if (!user) {
-    return <Login onLoggedIn={setUser} />
+    return <Login onLoggedIn={(me) => {
+      setUser(me)
+      setCurrentPage(me?.role === 'supplier' ? 'supplier' : 'company')
+    }} />
   }
 
   return (
     <div className="flex h-screen bg-gray-50">
-      <Sidebar currentPage={currentPage} onPageChange={setCurrentPage} />
+      <Sidebar user={user} currentPage={currentPage} onPageChange={setCurrentPage} />
       <div className="flex-1 flex flex-col">
         <Topbar user={user} currentPage={currentPage} onLogout={onLogout} />
         <main className="flex-1 overflow-auto p-6">

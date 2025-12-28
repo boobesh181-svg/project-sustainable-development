@@ -15,6 +15,7 @@ from app.services.anomaly_rules import (
     rule_duplicate_photo,
     rule_suspicious_supplier,
 )
+from app.services.anomaly_explanation import apply_explanation_defaults
 
 
 async def run_anomaly_checks(
@@ -98,6 +99,7 @@ async def run_anomaly_checks(
 
     # Persist all alerts to database (immutable)
     for alert in alerts:
+        apply_explanation_defaults(alert)
         db.add(alert)
 
     await db.commit()

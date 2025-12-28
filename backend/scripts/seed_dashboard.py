@@ -29,12 +29,14 @@ from app.core.security import get_password_hash
 from app.db.session import AsyncSessionLocal
 from app.models.anomaly_alert import AnomalyAlert, AnomalySeverity
 from app.models.delivery_verification import DeliveryVerification
+from app.models.emission_factor import EmissionFactor
 from app.models.material_token import MaterialToken
 from app.models.mrv_report import MRVReport, MRVStatus
 from app.models.project import Project, ProjectStatus
 from app.models.public_metrics import PublicMetrics
 from app.models.role import Role, RoleName
 from app.models.sensor_reading import SensorReading, SensorType
+from app.models.supplier import Supplier
 from app.models.user import User
 from app.models.whistleblower import (
     Whistleblower,
@@ -88,6 +90,7 @@ async def _get_or_create_user(
     password: str,
     role_ids: dict[RoleName, int],
     role: RoleName,
+    supplier_id: uuid.UUID | None = None,
 ) -> User:
     user = (await session.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if user:
@@ -96,6 +99,7 @@ async def _get_or_create_user(
         user.hashed_password = get_password_hash(password)
         user.is_active = True
         user.role_id = role_ids[role]
+        user.supplier_id = supplier_id
         await session.commit()
         await session.refresh(user)
         return user
@@ -106,11 +110,74 @@ async def _get_or_create_user(
         hashed_password=get_password_hash(password),
         is_active=True,
         role_id=role_ids[role],
+        supplier_id=supplier_id,
     )
     session.add(user)
     await session.commit()
     await session.refresh(user)
     return user
+
+
+async def _ensure_emission_factors(session) -> None:
+    """Ensure demo active emission factors exist for seeded material tokens."""
+    valid_from = datetime(2025, 1, 1, tzinfo=timezone.utc)
+
+    # Approximate demo factors (kgCO2e per unit). These are seeded for demo/pilot UI only.
+    # Units match the token units we seed below.
+    defs = [
+        {
+            "material_code": "CEM-OPC",
+            "material_name": "Ordinary Portland Cement",
+            "unit": "t",
+            "co2e_per_unit": 900.0,
+        },
+        {
+            "material_code": "STL-RB",
+            "material_name": "Rebar Steel",
+            "unit": "t",
+            "co2e_per_unit": 1800.0,
+        },
+        {
+            "material_code": "AGG-20",
+            "material_name": "Aggregates (20mm)",
+            "unit": "t",
+            "co2e_per_unit": 50.0,
+        },
+        {
+            "material_code": "GLS-L",
+            "material_name": "Low-E Glass",
+            "unit": "m2",
+            "co2e_per_unit": 20.0,
+        },
+    ]
+
+    for d in defs:
+        existing = (
+            await session.execute(
+                select(EmissionFactor).where(
+                    EmissionFactor.material_code == d["material_code"],
+                    EmissionFactor.is_active.is_(True),
+                )
+            )
+        ).scalar_one_or_none()
+        if existing:
+            continue
+
+        ef = EmissionFactor(
+            material_code=d["material_code"],
+            material_name=d["material_name"],
+            version=1,
+            co2e_per_unit=d["co2e_per_unit"],
+            unit=d["unit"],
+            valid_from=valid_from,
+            created_at=valid_from,
+            created_by="seed_dashboard",
+            is_active=True,
+        )
+        ef.factor_hash = ef.generate_hash()
+        session.add(ef)
+
+    await session.commit()
 
 
 async def seed_dashboard() -> None:
@@ -119,6 +186,9 @@ async def seed_dashboard() -> None:
     async with AsyncSessionLocal() as session:
         role_ids = await _get_or_create_roles(session)
         admin = await _get_or_create_admin(session, role_ids)
+
+        # Ensure emission factors exist before seeding tokens (so company-summary can compute emissions).
+        await _ensure_emission_factors(session)
 
         # Ensure demo login accounts exist (dev/demo only)
         mrv_user = await _get_or_create_user(
@@ -250,6 +320,25 @@ async def seed_dashboard() -> None:
                 ("GLS-L", "Low-E Glass", "m2"),
             ]
             suppliers = ["EcoMaterials Ltd", "GreenBuild Supply", "Sustainable Steel Co"]
+
+            # Ensure Supplier rows exist and bind supplier@example.com to a specific supplier.
+            existing_suppliers = (await session.execute(select(Supplier))).scalars().all()
+            by_name_sup = {s.name: s for s in existing_suppliers}
+            for name in suppliers:
+                if name not in by_name_sup:
+                    s = Supplier(name=name, partnership_discount=0.0500, total_value_supplied=0)
+                    session.add(s)
+            await session.commit()
+            existing_suppliers = (await session.execute(select(Supplier))).scalars().all()
+            by_name_sup = {s.name: s for s in existing_suppliers}
+
+            # Re-fetch supplier user and attach a deterministic supplier scope.
+            supplier_user = (
+                await session.execute(select(User).where(User.email == "supplier@example.com"))
+            ).scalar_one_or_none()
+            if supplier_user and supplier_user.supplier_id is None:
+                supplier_user.supplier_id = by_name_sup["EcoMaterials Ltd"].id
+                await session.commit()
 
             for i in range(18):
                 project = projects[i % len(projects)]

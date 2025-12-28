@@ -54,6 +54,7 @@ async def verify_evidence(
 
     evidence.verified_at = datetime.now(timezone.utc)
     evidence.verified_by = current_user.id
+    evidence.decision = payload.decision
     evidence.verification_notes = payload.verification_notes
 
     db.add(evidence)
@@ -70,6 +71,7 @@ async def verify_evidence(
         event_payload={
             "sha256": evidence.sha256,
             "report_id": str(evidence.report_id) if evidence.report_id else None,
+            "decision": payload.decision,
             "verification_notes": payload.verification_notes,
         },
     )

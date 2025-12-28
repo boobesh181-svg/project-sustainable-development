@@ -4,7 +4,16 @@ from datetime import datetime, timezone
 import uuid
 from enum import Enum as PyEnum
 
-from sqlalchemy import CheckConstraint, DateTime, Enum as SAEnum, Float, ForeignKey, Numeric, String
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Enum as SAEnum,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -54,6 +63,13 @@ class AnomalyAlert(Base):
     rule_code: Mapped[str] = mapped_column(
         String(50), nullable=False, index=True
     )  # EXCESS_QUANTITY, DISTANCE_MISMATCH, DUPLICATE_PHOTO
+
+    # Requested extension fields (LOI Module 4)
+    rule_id: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requires_action: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     # Severity classification
     severity: Mapped[AnomalySeverity] = mapped_column(

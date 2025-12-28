@@ -25,6 +25,7 @@ services:
     restart: unless-stopped
     environment:
       ENV: docker
+      DEMO_MODE: ${DEMO_MODE:-false}
       DATABASE_URL: postgresql+asyncpg://windsurf:windsurf_pass@postgres:5432/windsurf
       SECRET_KEY: change-me-in-production-secret-key-12345
       ACCESS_TOKEN_EXPIRE_MINUTES: 15

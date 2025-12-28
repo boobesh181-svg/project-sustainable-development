@@ -62,6 +62,9 @@ async def redeem_material_token(
     token_uid: str,
     payload: MaterialTokenRedeem,
     delivery_photo_path: str,
+    *,
+    actor: str = "system",
+    actor_user_id: UUID | None = None,
 ) -> MaterialToken:
     """
     Redeem a material token with delivery evidence (one-time only).
@@ -102,7 +105,7 @@ async def redeem_material_token(
     # Log to audit trail
     await write_audit_log(
         db=db,
-        actor="system",
+        actor=actor,
         action="TOKEN_REDEEMED",
         entity_type="MaterialToken",
         entity_id=token.token_uid,
@@ -112,6 +115,7 @@ async def redeem_material_token(
             "supplier_invoice_ref": payload.supplier_invoice_ref,
             "photo_path": delivery_photo_path,
         },
+        actor_user_id=actor_user_id,
     )
 
     return token

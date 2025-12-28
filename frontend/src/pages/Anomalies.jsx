@@ -7,6 +7,7 @@ export default function Anomalies() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [projectId, setProjectId] = useState(null)
+  const [acknowledgedIds, setAcknowledgedIds] = useState(() => new Set())
 
   useEffect(() => {
     const loadAnomalies = async () => {
@@ -45,13 +46,12 @@ export default function Anomalies() {
     return colors[severity] || 'bg-gray-100 text-gray-800'
   }
 
-  const getSeverityIcon = (severity) => {
-    const icons = {
-      HIGH: '🔴',
-      MEDIUM: '🟡',
-      LOW: '🔵',
-    }
-    return icons[severity] || '⚪'
+  const acknowledge = (id) => {
+    setAcknowledgedIds((prev) => {
+      const next = new Set(prev)
+      next.add(id)
+      return next
+    })
   }
 
   if (loading) return <Loading />
@@ -70,32 +70,54 @@ export default function Anomalies() {
           <p className="text-gray-600">✅ No anomalies detected</p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {anomalies.map((anomaly) => (
-            <div
-              key={anomaly.id}
-              className={`border-l-4 bg-white p-6 rounded-lg shadow hover:shadow-md transition-shadow ${getSeverityColor(anomaly.severity)}`}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-4">
-                  <span className="text-2xl">{getSeverityIcon(anomaly.severity)}</span>
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{anomaly.rule_code || 'Unknown Rule'}</h3>
-                    <p className="text-sm text-gray-600 mt-1">{anomaly.description || 'No description'}</p>
-                    <div className="mt-2 text-xs text-gray-500">
-                      <p>
-                        Token: {anomaly.token_uid ? String(anomaly.token_uid).slice(0, 12) + '…' : '—'}
-                      </p>
-                      <p>Detected: {anomaly.detected_at ? new Date(anomaly.detected_at).toLocaleString() : '—'}</p>
-                    </div>
-                  </div>
-                </div>
-                <button className="text-sm font-medium text-blue-600 hover:text-blue-800 whitespace-nowrap ml-4">
-                  Review
-                </button>
-              </div>
-            </div>
-          ))}
+        <div className="bg-white rounded-lg shadow overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50 text-gray-700">
+              <tr>
+                <th className="text-left font-semibold px-4 py-3">Rule</th>
+                <th className="text-left font-semibold px-4 py-3">Severity</th>
+                <th className="text-left font-semibold px-4 py-3">Why Flagged</th>
+                <th className="text-left font-semibold px-4 py-3">Explanation</th>
+                <th className="text-left font-semibold px-4 py-3">Detected</th>
+                <th className="text-left font-semibold px-4 py-3">Acknowledge</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {anomalies.map((anomaly) => {
+                const acknowledged = acknowledgedIds.has(anomaly.id)
+                const rule = anomaly.rule_id || anomaly.rule_code || '—'
+                return (
+                  <tr key={anomaly.id} className={anomaly.requires_action ? 'bg-red-50/50' : ''}>
+                    <td className="px-4 py-3 text-gray-900 font-medium whitespace-nowrap">{rule}</td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded border ${getSeverityColor(anomaly.severity)}`}>
+                        {anomaly.severity || '—'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">{anomaly.description || '—'}</td>
+                    <td className="px-4 py-3 text-gray-700">{anomaly.explanation || '—'}</td>
+                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                      {anomaly.detected_at ? new Date(anomaly.detected_at).toLocaleString() : '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        onClick={() => acknowledge(anomaly.id)}
+                        disabled={acknowledged}
+                        className={
+                          acknowledged
+                            ? 'px-3 py-1.5 rounded bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700'
+                        }
+                      >
+                        {acknowledged ? 'Acknowledged' : 'Acknowledge'}
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

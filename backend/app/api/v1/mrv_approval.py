@@ -4,8 +4,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_current_user, get_db, role_required
+from app.core.config import settings
 from app.models.project import Project
 from app.models.mrv_report import MRVReport
 from app.models.role import RoleName
@@ -122,6 +124,23 @@ async def advance_report(
     - ❌ Invalid: APPROVED → VERIFIED (reversion blocked)
     - ❌ Invalid: Edit CO₂ after APPROVED (immutability enforced)
     """
+    if settings.DEMO_MODE:
+        report = (
+            await db.execute(
+                select(MRVReport)
+                .options(selectinload(MRVReport.project))
+                .where(MRVReport.id == report_id)
+            )
+        ).scalar_one_or_none()
+        if report is None:
+            raise HTTPException(status_code=404, detail=f"MRV report {report_id} not found")
+        project_name = getattr(getattr(report, "project", None), "name", "")
+        if not str(project_name).upper().startswith("DEMO"):
+            raise HTTPException(
+                status_code=403,
+                detail="Demo mode: MRV advancement is allowed only for seeded DEMO reports",
+            )
+
     try:
         return await advance_mrv_status(
             db=db,

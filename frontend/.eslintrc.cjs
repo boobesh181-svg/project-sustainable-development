@@ -17,6 +17,14 @@ module.exports = {
     tsconfigRootDir: __dirname,
     project: './tsconfig.eslint.json',
   },
+  overrides: [
+    {
+      files: ['**/*.js', '**/*.jsx'],
+      parserOptions: {
+        project: null,
+      },
+    },
+  ],
   plugins: ['@typescript-eslint', 'react-hooks'],
   rules: {
     'no-unused-vars': 'off',

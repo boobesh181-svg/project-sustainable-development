@@ -1,11 +1,15 @@
-export default function Sidebar({ currentPage, onPageChange }) {
-  const pages = [
-    { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-    { id: 'projects', label: 'Projects', icon: '🏗️' },
-    { id: 'mrv', label: 'MRV Reports', icon: '📋' },
-    { id: 'anomalies', label: 'Anomalies', icon: '⚠️' },
-    { id: 'audit', label: 'Audit Trail', icon: '📜' },
-  ]
+export default function Sidebar({ user, currentPage, onPageChange }) {
+  const isSupplier = user?.role === 'supplier'
+  const pages = isSupplier
+    ? [{ id: 'supplier', label: 'Supplier Portal', icon: '📦' }]
+    : [
+      { id: 'company', label: 'Company Overview', icon: '🏢' },
+      { id: 'dashboard', label: 'Dashboard', icon: '📊' },
+      { id: 'projects', label: 'Projects', icon: '🏗️' },
+      { id: 'mrv', label: 'MRV Reports', icon: '📋' },
+      { id: 'anomalies', label: 'Anomalies', icon: '⚠️' },
+      { id: 'audit', label: 'Audit Trail', icon: '📜' },
+    ]
 
   return (
     <aside className="w-64 bg-white shadow-lg">

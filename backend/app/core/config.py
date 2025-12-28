@@ -62,6 +62,15 @@ class Settings(BaseSettings):
         description="Enable any carbon-credit issuance/retirement APIs (default disabled)",
     )
 
+    # Demo mode (LOI pilot safety)
+    DEMO_MODE: bool = Field(
+        False,
+        description=(
+            "When true, the system runs in a safe demo posture: seeds synthetic demo data, "
+            "blocks destructive endpoints, and watermarks exports as DEMO."
+        ),
+    )
+
 
 # Default carbon factor mappings; can be overridden via DB or config table.
 CARBON_FACTORS_BASELINE = {

@@ -3,14 +3,20 @@ import { apiClient } from '../api/client'
 
 export default function Topbar({ user, currentPage, onLogout }) {
   const [dbHealth, setDbHealth] = useState(false)
+  const [demoMode, setDemoMode] = useState(false)
+  const [demoNotice, setDemoNotice] = useState('')
 
   useEffect(() => {
     const checkHealth = async () => {
       try {
         const health = await apiClient.checkHealth()
         setDbHealth(health.db === true)
-      } catch (error) {
+        setDemoMode(health.demo_mode === true)
+        setDemoNotice(typeof health.notice === 'string' ? health.notice : '')
+      } catch {
         setDbHealth(false)
+        setDemoMode(false)
+        setDemoNotice('')
       }
     }
 
@@ -21,18 +27,29 @@ export default function Topbar({ user, currentPage, onLogout }) {
 
   return (
     <header className="bg-white shadow-sm border-b border-gray-200">
+      {demoMode ? (
+        <div className="bg-yellow-50 border-b border-yellow-200 px-6 py-2 text-sm text-yellow-900">
+          {demoNotice || 'Demo Mode – No real compliance claims'}
+        </div>
+      ) : null}
       <div className="px-6 py-4 flex justify-between items-center">
         <div>
           <h2 className="text-xl font-semibold text-gray-800">
-            {currentPage === 'dashboard'
-              ? 'Dashboard'
-              : currentPage === 'mrv'
-                ? 'MRV Reports'
-                : currentPage === 'anomalies'
-                  ? 'Anomalies'
-                  : currentPage === 'audit'
-                    ? 'Audit Trail'
-                    : 'Dashboard'}
+            {currentPage === 'supplier'
+              ? 'Supplier Portal'
+              : currentPage === 'company'
+                ? 'Company Overview'
+                : currentPage === 'projects'
+                  ? 'Projects'
+                  : currentPage === 'dashboard'
+                    ? 'Dashboard'
+                    : currentPage === 'mrv'
+                      ? 'MRV Reports'
+                      : currentPage === 'anomalies'
+                        ? 'Anomalies'
+                        : currentPage === 'audit'
+                          ? 'Audit Trail'
+                          : 'Dashboard'}
           </h2>
           <p className="text-sm text-gray-500">Real-time Materials, Resources & Verification</p>
         </div>

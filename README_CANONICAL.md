@@ -56,6 +56,21 @@ After running `python backend/scripts/seed_dashboard.py`, these demo accounts ex
 - **Supplier**: `supplier@example.com` / `Supply789!`
 - **Citizen**: `citizen@example.com` / `Citizen123!`
 
+## Demo Mode (LOI Pilot Safety)
+
+Set `DEMO_MODE=true` for a safe evaluation posture:
+
+- Seeds *synthetic* demo data at startup (best-effort, idempotent)
+- Locks write endpoints (prevents accidental data mutation)
+- Watermarks compliance exports as **DEMO**
+- Frontend shows: "Demo Mode – No real compliance claims"
+
+Example:
+
+```bash
+DEMO_MODE=true docker compose up --build -d
+```
+
 ## MRV Approval Workflow
 
 The canonical MRV approval API is under:

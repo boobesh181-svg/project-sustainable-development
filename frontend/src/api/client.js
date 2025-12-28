@@ -73,6 +73,27 @@ export const apiClient = {
     return parseOrThrow(res)
   },
 
+  async fetchCompanyMRVSummary() {
+    const res = await fetch(`${API_BASE}/api/v1/mrv/company-summary`, withAuth())
+    return parseOrThrow(res)
+  },
+
+  async downloadCompliancePackage() {
+    const res = await fetch(`${API_BASE}/api/v1/mrv/export/iso?format=zip`, withAuth())
+    if (!res.ok) {
+      let detail = ''
+      try {
+        const data = await res.json()
+        if (typeof data?.detail === 'string') detail = data.detail
+      } catch {
+        // ignore
+      }
+      const msg = detail ? `Failed: ${res.status} - ${detail}` : `Failed: ${res.status}`
+      throw new Error(msg)
+    }
+    return res.blob()
+  },
+
   async fetchProjects(limit = 50) {
     // Use trailing slash to avoid FastAPI redirect (/projects -> /projects/)
     // which can cause auth headers/cookies to be dropped in some clients.
@@ -153,7 +174,31 @@ export const apiClient = {
 
   // Material token endpoints
   async fetchMaterialTokens(projectId) {
-    const res = await fetch(`${API_BASE}/api/v1/material-tokens?project_id=${projectId}`, withAuth())
+    const res = await fetch(`${API_BASE}/api/v1/material-tokens/?project_id=${projectId}`, withAuth())
+    return parseOrThrow(res)
+  },
+
+  async fetchMyMaterialTokens() {
+    const res = await fetch(`${API_BASE}/api/v1/material-tokens/`, withAuth())
+    return parseOrThrow(res)
+  },
+
+  async fetchTokenEvidence(tokenUid) {
+    const res = await fetch(`${API_BASE}/api/v1/material-tokens/${tokenUid}/evidence`, withAuth())
+    return parseOrThrow(res)
+  },
+
+  async uploadEvidenceForToken(tokenUid, evidenceKind, file) {
+    const form = new FormData()
+    form.append('file', file)
+
+    const qs = new URLSearchParams({ token_uid: tokenUid })
+    if (evidenceKind) qs.set('evidence_kind', evidenceKind)
+
+    const res = await fetch(`${API_BASE}/api/v1/upload/evidence?${qs.toString()}`, withAuth({
+      method: 'POST',
+      body: form,
+    }))
     return parseOrThrow(res)
   },
 

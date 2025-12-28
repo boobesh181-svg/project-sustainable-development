@@ -11,6 +11,7 @@ from app.services.anomaly_engine import (
     get_project_anomalies,
     get_anomaly_by_id,
 )
+from app.services.anomaly_explanation import build_anomaly_explanation
 
 
 # Response schemas
@@ -19,9 +20,12 @@ class AnomalyAlertOut(BaseModel):
     id: UUID
     project_id: UUID
     token_uid: str | None
+    rule_id: str
     rule_code: str
     severity: str
     description: str
+    explanation: str
+    requires_action: bool
     numeric_value: float | None
     threshold: float | None
     detected_at: str
@@ -37,6 +41,24 @@ class AnomalyCheckResult(BaseModel):
 
 
 router = APIRouter(prefix="/api/v1/anomalies", tags=["Anomaly Detection"])
+
+
+def _serialize_alert(alert) -> AnomalyAlertOut:
+    meta = build_anomaly_explanation(alert)
+    return AnomalyAlertOut(
+        id=alert.id,
+        project_id=alert.project_id,
+        token_uid=alert.token_uid,
+        rule_id=alert.rule_id or meta.rule_id,
+        rule_code=alert.rule_code,
+        severity=alert.severity.value if hasattr(alert.severity, "value") else str(alert.severity),
+        description=alert.description,
+        explanation=alert.explanation or meta.explanation,
+        requires_action=bool(getattr(alert, "requires_action", False) or meta.requires_action),
+        numeric_value=float(alert.numeric_value) if alert.numeric_value is not None else None,
+        threshold=float(alert.threshold) if alert.threshold is not None else None,
+        detected_at=alert.detected_at.isoformat() if hasattr(alert.detected_at, "isoformat") else str(alert.detected_at),
+    )
 
 
 @router.post("/run/{token_uid}", response_model=AnomalyCheckResult)
@@ -106,7 +128,7 @@ async def get_project_anomaly_alerts(
     """
     try:
         alerts = await get_project_anomalies(db, project_id, severity)
-        return alerts
+        return [_serialize_alert(a) for a in alerts]
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -122,4 +144,4 @@ async def get_anomaly_details(
         raise HTTPException(
             status_code=404, detail=f"Anomaly alert {anomaly_id} not found"
         )
-    return alert
+    return _serialize_alert(alert)
