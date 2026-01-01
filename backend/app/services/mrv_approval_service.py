@@ -1,9 +1,12 @@
 """MRV approval service: enforce immutable-after-approval workflow."""
 
+from fastapi import HTTPException
+from starlette import status
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.models.mrv_report import MRVReport, MRVStatus
 from app.models.role import RoleName
 from app.schemas.mrv_approval import MRVReportCreate
@@ -22,6 +25,12 @@ async def create_mrv_report(
     - CO₂ value locked at creation (immutable with snapshots)
     - Emission factor snapshot captured for ISO-14064 reproducibility
     """
+    if settings.DEMO_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo mode: MRV report creation is disabled.",
+        )
+
     # Capture emission factor snapshot if provided (ISO-14064 compliance)
     emission_factor_snapshot = None
     if payload.emission_factor_id:
@@ -36,7 +45,7 @@ async def create_mrv_report(
             emission_factor_snapshot = {
                 "version": f"{emission_factor.material_code}_v{emission_factor.version}",
                 "hash": emission_factor.factor_hash,
-                "value": float(emission_factor.co2e_per_unit),
+                "value": emission_factor.co2e_per_unit,
             }
     
     report = MRVReport(
@@ -110,6 +119,12 @@ async def advance_mrv_status(
     Raises:
         ValueError: If transition is invalid or report is immutable
     """
+    if settings.DEMO_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo mode: MRV workflow advancement is disabled.",
+        )
+
     result = await db.execute(
         select(MRVReport).where(MRVReport.id == report_id)
     )

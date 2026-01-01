@@ -53,6 +53,7 @@ class MRVReportOut(BaseModel):
     emission_factor_version_snapshot: str | None
     emission_factor_hash_snapshot: str | None
     emission_factor_value_snapshot: float | None
+    pilot: bool = False
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -66,5 +67,6 @@ class MRVReportSummary(BaseModel):
     status: str
     created_by: UUID
     created_at: datetime
+    pilot: bool = False
     
     model_config = ConfigDict(from_attributes=True)

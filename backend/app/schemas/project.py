@@ -10,6 +10,7 @@ class ProjectBase(BaseModel):
     lat: float
     lon: float
     budget_usd: float | None = None
+    pilot: bool = False
 
 
 class ProjectCreate(ProjectBase):

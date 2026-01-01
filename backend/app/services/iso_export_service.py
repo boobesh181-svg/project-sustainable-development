@@ -184,6 +184,9 @@ async def build_iso_export_payload(db: AsyncSession) -> dict[str, Any]:
                 "version": int(ef.version),
                 "co2e_per_unit": _safe_num(ef.co2e_per_unit),
                 "unit": ef.unit,
+                "source_type": getattr(ef, "source_type", None),
+                "jurisdiction": getattr(ef, "jurisdiction", None),
+                "methodology_reference": getattr(ef, "methodology_reference", None),
                 "valid_from": _to_iso(ef.valid_from),
                 "valid_to": _to_iso(ef.valid_to),
                 "factor_hash": ef.factor_hash,
@@ -198,6 +201,7 @@ async def build_iso_export_payload(db: AsyncSession) -> dict[str, Any]:
             {
                 "id": str(ev.id),
                 "upload_type": ev.upload_type,
+                "evidence_hash": ev.evidence_hash,
                 "sha256": ev.sha256,
                 "size_bytes": int(ev.size_bytes),
                 "content_type": ev.content_type,
@@ -212,6 +216,8 @@ async def build_iso_export_payload(db: AsyncSession) -> dict[str, Any]:
                 "verification_notes": ev.verification_notes,
                 "report_id": str(ev.report_id) if ev.report_id else None,
                 "material_token_id": str(ev.material_token_id) if ev.material_token_id else None,
+                "lat": ev.lat,
+                "lon": ev.lon,
             }
             for ev in evidence_rows
         ],
@@ -317,6 +323,7 @@ async def build_iso_compliance_package(
             fieldnames=[
                 "id",
                 "upload_type",
+                "evidence_hash",
                 "sha256",
                 "size_bytes",
                 "content_type",
@@ -331,6 +338,8 @@ async def build_iso_compliance_package(
                 "verification_notes",
                 "report_id",
                 "material_token_id",
+                "lat",
+                "lon",
             ],
         )
 

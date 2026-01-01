@@ -2,9 +2,12 @@
 
 from decimal import Decimal
 from uuid import UUID
+from fastapi import HTTPException
+from starlette import status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.models.emission_factor import EmissionFactor
 from app.schemas.emission_factor import EmissionFactorCreate
 
@@ -23,6 +26,12 @@ async def create_emission_factor(
     - No duplicate material_code + version combinations.
     - Factor starts INACTIVE; must be explicitly activated.
     """
+    if settings.DEMO_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo mode: emission factor creation is disabled.",
+        )
+
     existing = await db.execute(
         select(EmissionFactor).where(
             EmissionFactor.material_code == data.material_code,
@@ -40,7 +49,11 @@ async def create_emission_factor(
         version=data.version,
         co2e_per_unit=data.co2e_per_unit,
         unit=data.unit,
+        source_type=str(data.source_type.value if hasattr(data.source_type, "value") else data.source_type),
+        jurisdiction=data.jurisdiction,
+        methodology_reference=data.methodology_reference,
         valid_from=data.valid_from,
+        valid_to=data.valid_to,
         created_by=actor_email,
         created_by_user_id=actor_user_id,
         is_active=False,  # Start inactive
@@ -63,6 +76,12 @@ async def activate_emission_factor(db: AsyncSession, factor_id: str) -> Emission
     - Deactivate previous versions automatically.
     - Once active, the factor is immutable at the DB level.
     """
+    if settings.DEMO_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo mode: emission factor activation is disabled.",
+        )
+
     factor = await db.get(EmissionFactor, factor_id)
     if not factor:
         raise ValueError(f"Emission factor {factor_id} not found")

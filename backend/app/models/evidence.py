@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import uuid
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -43,6 +43,10 @@ class Evidence(Base):
         UUID(as_uuid=True), ForeignKey("material_token.id"), nullable=True
     )
 
+    # Optional geo metadata (real-world ingestion)
+    lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lon: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     verified_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("user.id"), nullable=True
@@ -59,6 +63,8 @@ class Evidence(Base):
     __table_args__ = (
         CheckConstraint("LENGTH(sha256) = 64", name="ck_evidence_sha256_len"),
         CheckConstraint("size_bytes >= 0", name="ck_evidence_size_nonneg"),
+        CheckConstraint("lat IS NULL OR (lat >= -90 AND lat <= 90)", name="ck_evidence_valid_lat"),
+        CheckConstraint("lon IS NULL OR (lon >= -180 AND lon <= 180)", name="ck_evidence_valid_lon"),
         CheckConstraint(
             "decision IS NULL OR decision IN ('accepted','rejected','needs_correction')",
             name="ck_evidence_decision_allowed",
@@ -68,3 +74,8 @@ class Evidence(Base):
             name="ck_evidence_verified_requires_actor",
         ),
     )
+
+    @property
+    def evidence_hash(self) -> str:
+        """Alias for sha256 (integrity hash) to match ingestion terminology."""
+        return self.sha256

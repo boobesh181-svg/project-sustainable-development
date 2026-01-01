@@ -1,9 +1,13 @@
 """Anomaly detection engine: orchestrates all rules and persists alerts."""
 
+import uuid
 from uuid import UUID
+from fastapi import HTTPException
+from starlette import status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.models.anomaly_alert import AnomalyAlert
 from app.models.material_token import MaterialToken
 from app.models.delivery_verification import DeliveryVerification
@@ -61,6 +65,14 @@ async def run_anomaly_checks(
     )
     project = project_result.scalar_one_or_none()
 
+    if settings.DEMO_MODE:
+        project_name = getattr(project, "name", "") if project is not None else ""
+        if not str(project_name).upper().startswith("DEMO"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Demo mode: anomaly checks are allowed only for seeded DEMO records.",
+            )
+
     # Fetch delivery verification (if redeemed)
     delivery_result = await db.execute(
         select(DeliveryVerification).where(
@@ -97,16 +109,24 @@ async def run_anomaly_checks(
     if alert4:
         alerts.append(alert4)
 
-    # Persist all alerts to database (immutable)
     for alert in alerts:
         apply_explanation_defaults(alert)
+
+        # In DEMO_MODE we run checks in a read-only posture: do not persist
+        # alerts (which are immutable audit records). We still return results.
+        if settings.DEMO_MODE:
+            if getattr(alert, "id", None) is None:
+                alert.id = uuid.uuid4()  # type: ignore[assignment]
+            continue
+
         db.add(alert)
 
-    await db.commit()
+    if not settings.DEMO_MODE:
+        await db.commit()
 
-    # Refresh alerts to get IDs
-    for alert in alerts:
-        await db.refresh(alert)
+        # Refresh alerts to get IDs
+        for alert in alerts:
+            await db.refresh(alert)
 
     return alerts
 

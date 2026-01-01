@@ -63,6 +63,17 @@ class MaterialToken(Base):
 
     # Supplier (immutable)
     supplier_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    supplier_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("supplier.id"), nullable=True
+    )
+
+    # Supplier-provided batch identifier (real-world ingestion)
+    batch_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    # Supplier-reported delivery timestamp (distinct from redeemed_at, which is system receipt time)
+    delivery_timestamp: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Issuance audit
     issued_at: Mapped[datetime] = mapped_column(
@@ -82,6 +93,7 @@ class MaterialToken(Base):
 
     # Relationships
     project = relationship("Project", back_populates="material_tokens")
+    supplier = relationship("Supplier")
     delivery_verification = relationship(
         "DeliveryVerification", back_populates="material_token", uselist=False
     )
@@ -89,7 +101,7 @@ class MaterialToken(Base):
     __table_args__ = (
         CheckConstraint("quantity > 0", name="ck_material_token_positive_qty"),
         CheckConstraint(
-            "redeemed = false OR (redeemed_at IS NOT NULL AND delivery_lat IS NOT NULL AND delivery_lon IS NOT NULL)",
+            "redeemed = false OR (redeemed_at IS NOT NULL AND delivery_timestamp IS NOT NULL AND supplier_id IS NOT NULL AND delivery_lat IS NOT NULL AND delivery_lon IS NOT NULL)",
             name="ck_material_token_redemption_complete",
         ),
         UniqueConstraint("project_id", "token_uid", name="uq_material_token_project_uid"),

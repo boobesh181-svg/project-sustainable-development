@@ -14,6 +14,7 @@ from app.schemas.project import ProjectCreate, ProjectRead
 from app.schemas.kpi import DashboardCharts
 from app.schemas.project_insights import ProjectImpact
 from app.services.project_insights_service import get_project_charts, get_project_impact
+from app.services.project_service import create_project as create_project_service
 
 router = APIRouter()
 
@@ -84,22 +85,6 @@ async def create_project(
     current_user: User = Depends(role_required([RoleName.ADMIN, RoleName.PROJECT_MANAGER])),
 ) -> Project:
     try:
-        status_enum = ProjectStatus(payload.status)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid status: {payload.status}. Must be one of: {', '.join([s.value for s in ProjectStatus])}",
-        )
-
-    project = Project(
-        name=payload.name,
-        status=status_enum,
-        lat=payload.lat,
-        lon=payload.lon,
-        budget_usd=payload.budget_usd,
-        created_by=current_user.id,
-    )
-    db.add(project)
-    await db.commit()
-    await db.refresh(project)
-    return project
+        return await create_project_service(db, payload, created_by_user_id=current_user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

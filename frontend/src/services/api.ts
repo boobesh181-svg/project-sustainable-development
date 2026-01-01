@@ -116,6 +116,20 @@ export async function fetchDashboardCharts(): Promise<DashboardCharts> {
   return res.json();
 }
 
+export interface HealthStatus {
+  status: string;
+  db: boolean;
+  mode: 'demo' | 'prod';
+}
+
+export async function fetchHealth(): Promise<HealthStatus> {
+  const res = await fetch(`${API_BASE}/health`, { credentials: 'include' });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch health: ${res.status}`);
+  }
+  return res.json();
+}
+
 export interface TokenPair {
   access_token: string;
   refresh_token: string;
@@ -154,6 +168,7 @@ export interface Project {
   lat: number;
   lon: number;
   budget_usd?: number | null;
+  pilot?: boolean;
   created_by: string;
   created_at: string;
 }
@@ -172,6 +187,7 @@ export interface MRVReportSummary {
   status: string;
   created_by: string;
   created_at: string;
+  pilot?: boolean;
 }
 
 export interface MRVReportCreate {
@@ -204,6 +220,7 @@ export interface MRVReportOut {
   emission_factor_version_snapshot: string | null;
   emission_factor_hash_snapshot: string | null;
   emission_factor_value_snapshot: number | null;
+  pilot?: boolean;
 }
 
 export async function fetchReports(params?: {
@@ -225,4 +242,14 @@ export async function advanceReport(reportId: string, nextStatus: 'SUBMITTED' | 
     next_status: nextStatus,
   });
   return res.data;
+}
+
+export async function downloadComplianceBundle(reportId: string): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/api/v1/mrv/export/${reportId}`, {
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to export compliance bundle: ${res.status}`);
+  }
+  return res.blob();
 }

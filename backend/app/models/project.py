@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import uuid
 from enum import Enum as PyEnum
 
-from sqlalchemy import DateTime, Enum as SAEnum, Float, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,6 +28,12 @@ class Project(Base):
     lat: Mapped[float] = mapped_column(Float, nullable=False)
     lon: Mapped[float] = mapped_column(Float, nullable=False)
     budget_usd: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    pilot: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("user.id"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False

@@ -13,6 +13,8 @@ from app.api.v1 import (
     users,
     projects,
     tokens,
+    demo,
+    public,
     anomalies,
     dashboard,
     upload,
@@ -32,9 +34,9 @@ from app.core.audit_context import set_audit_request_context
 
 def _demo_write_locked_response() -> JSONResponse:
     return JSONResponse(
-        status_code=423,
+        status_code=403,
         content={
-            "detail": "Demo mode: write operations are locked for this endpoint.",
+            "detail": "Demo mode: This action is disabled in DEMO mode",
         },
         headers={"Cache-Control": "no-store"},
     )
@@ -48,17 +50,14 @@ async def lifespan(app_instance: FastAPI):
     # Startup
     await init_db()
 
-    # Demo mode auto-seeding (best-effort; never blocks startup)
+    # Demo mode auto-seeding (must succeed; no silent fallbacks)
     if settings.DEMO_MODE:
-        try:
-            from app.db.session import AsyncSessionLocal
-            from app.services.demo_seed_service import ensure_demo_seeded
+        from app.db.session import AsyncSessionLocal
+        from app.services.demo_seed_service import ensure_demo_seeded
 
-            async with AsyncSessionLocal() as db:
-                await ensure_demo_seeded(db)
-            logger.info("DEMO_MODE enabled: demo data ensured")
-        except Exception as e:
-            logger.exception("DEMO_MODE seeding failed: %s", e)
+        async with AsyncSessionLocal() as db:
+            await ensure_demo_seeded(db)
+        logger.info("DEMO_MODE enabled: demo data ensured")
 
     yield
     # Shutdown (cleanup would go here if needed)
@@ -99,39 +98,32 @@ async def demo_mode_write_lock_middleware(request: Request, call_next):
     This does NOT change any business logic; it adds a safety guard so demo users
     cannot mutate compliance-relevant records.
 
-    Allowed in demo mode:
-    - Auth flows (login/logout/refresh)
-    - Non-destructive reads (GET)
-    - Running anomaly checks (POST /api/v1/anomalies/run/*) for explainability demos
+    Enforcement of compliance-sensitive actions happens in the service layer.
+    In DEMO mode, the demo must remain safe and non-destructive. We therefore
+    block all write-like methods by default (POST/PUT/PATCH/DELETE) and allow
+    only a narrow set of demo-safe interactions.
     """
 
     if not settings.DEMO_MODE:
         return await call_next(request)
 
     method = request.method.upper()
-    path = request.url.path
 
-    if method in ("PUT", "PATCH", "DELETE"):
-        return _demo_write_locked_response()
+    if method in ("POST", "PUT", "PATCH", "DELETE"):
+        path = request.url.path
 
-    if method == "POST":
-        # Allow auth endpoints (required to use the app)
-        if path in ("/api/v1/auth/login", "/api/v1/auth/logout", "/api/v1/auth/refresh"):
+        # Allow authentication flows (login/refresh/logout) so demo users can sign in.
+        if path.startswith("/api/v1/auth/"):
             return await call_next(request)
 
-        # Allow anomaly rule execution demo (writes AnomalyAlert records)
+        # Allow sandboxed evidence uploads only.
+        if path.startswith("/api/v1/upload/evidence"):
+            return await call_next(request)
+
+        # Allow anomaly checks (read-only in DEMO_MODE).
         if path.startswith("/api/v1/anomalies/run/"):
             return await call_next(request)
 
-        # Allow demo evidence uploads (sandboxed/flagged in the upload handler)
-        if path == "/api/v1/upload/evidence":
-            return await call_next(request)
-
-        # Allow advancing seeded demo MRV reports (additional checks in the route)
-        if path.startswith("/api/v1/mrv-approval/reports/") and path.endswith("/advance"):
-            return await call_next(request)
-
-        # Allow everything else to be locked (MRV creation/advancement, token issuance/redeem, uploads, verifications, etc.)
         return _demo_write_locked_response()
 
     return await call_next(request)
@@ -151,8 +143,7 @@ async def health() -> dict:
     return {
         "status": "ok",
         "db": db_ok,
-        "demo_mode": bool(settings.DEMO_MODE),
-        "notice": "Demo Mode – No real compliance claims" if settings.DEMO_MODE else None,
+        "mode": "demo" if settings.DEMO_MODE else "prod",
     }
 
 
@@ -161,6 +152,8 @@ app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(tokens.router, prefix="/api/v1/tokens", tags=["tokens"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
 app.include_router(projects.router, prefix="/api/v1/projects", tags=["projects"])
+app.include_router(demo.router, prefix="/api/v1/demo", tags=["demo"])
+app.include_router(public.router, prefix="/api/v1/public", tags=["public"])
 app.include_router(anomalies.router, prefix="/api/v1/alerts", tags=["anomalies"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
 app.include_router(upload.router, prefix="/api/v1/upload", tags=["upload"])

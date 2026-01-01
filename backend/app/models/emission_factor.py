@@ -2,6 +2,7 @@ import uuid
 import hashlib
 from datetime import datetime, timezone
 from decimal import Decimal
+from enum import Enum as PyEnum
 
 from sqlalchemy import (
     CheckConstraint,
@@ -17,6 +18,12 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
+
+
+class EmissionFactorSourceType(str, PyEnum):
+    IPCC = "IPCC"
+    NATIONAL = "National"
+    EPD = "EPD"
 
 
 class EmissionFactor(Base):
@@ -45,6 +52,15 @@ class EmissionFactor(Base):
     # CO₂ factor (kg CO₂e per unit)
     co2e_per_unit: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False)
     unit: Mapped[str] = mapped_column(String(50), nullable=False, default="kg")  # kg, ton, m3
+
+    # Governance / provenance (ISO-grade)
+    source_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=EmissionFactorSourceType.NATIONAL.value
+    )
+    jurisdiction: Mapped[str] = mapped_column(String(64), nullable=False, default="GLOBAL")
+    methodology_reference: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="unspecified"
+    )
     
     # Validity window
     valid_from: Mapped[datetime] = mapped_column(
@@ -70,6 +86,18 @@ class EmissionFactor(Base):
     __table_args__ = (
         UniqueConstraint("material_code", "version", name="uq_material_code_version"),
         CheckConstraint("co2e_per_unit > 0", name="ck_positive_co2"),
+        CheckConstraint(
+            "source_type IN ('IPCC','National','EPD')",
+            name="ck_emission_factor_source_type",
+        ),
+        CheckConstraint(
+            "char_length(jurisdiction) > 0",
+            name="ck_emission_factor_jurisdiction_nonempty",
+        ),
+        CheckConstraint(
+            "char_length(methodology_reference) > 0",
+            name="ck_emission_factor_methodology_ref_nonempty",
+        ),
         CheckConstraint("factor_hash ~ '^[0-9a-f]{64}$'", name="ck_factor_hash_format"),
         Index("ix_emission_factor_active", "material_code", "is_active"),
     )
@@ -77,6 +105,8 @@ class EmissionFactor(Base):
     def generate_hash(self) -> str:
         """Generate deterministic SHA256 hash to lock factor permanently."""
         co2e_str = str(Decimal(str(self.co2e_per_unit)).quantize(Decimal("0.000001")))
+        # Hash intentionally binds the immutable core calculation inputs to prevent drift.
+        # Governance metadata is separately captured and becomes immutable once active.
         raw = f"{self.material_code}|{self.version}|{co2e_str}|{self.unit}|{self.valid_from.isoformat()}"
         return hashlib.sha256(raw.encode()).hexdigest()
 

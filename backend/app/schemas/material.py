@@ -13,6 +13,9 @@ class MaterialTokenCreate(BaseModel):
     quantity: float = Field(..., gt=0, description="Quantity in specified unit")
     unit: str = Field(default="kg", max_length=50)
     supplier_name: str = Field(..., min_length=1, max_length=255)
+    supplier_id: UUID | None = Field(
+        None, description="Optional supplier FK for real-world ingestion"
+    )
     issued_by: str = Field(..., min_length=1, max_length=100)
 
 
@@ -21,6 +24,10 @@ class MaterialTokenRedeem(BaseModel):
     delivery_lat: float = Field(..., ge=-90, le=90)
     delivery_lon: float = Field(..., ge=-180, le=180)
     supplier_invoice_ref: str = Field(..., min_length=1, max_length=100)
+    batch_id: str | None = Field(None, max_length=100)
+    delivery_timestamp: datetime | None = Field(
+        None, description="Supplier-reported delivery timestamp"
+    )
 
 
 class MaterialTokenOut(BaseModel):
@@ -33,10 +40,13 @@ class MaterialTokenOut(BaseModel):
     quantity: float
     unit: str
     supplier_name: str
+    supplier_id: UUID | None
+    batch_id: str | None
     issued_at: datetime
     issued_by: str
     redeemed: bool
     redeemed_at: datetime | None
+    delivery_timestamp: datetime | None
     delivery_photo_path: str | None
     delivery_lat: float | None
     delivery_lon: float | None

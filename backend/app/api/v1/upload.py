@@ -37,6 +37,12 @@ async def upload_file(
         None,
         description="Optional logical type: epd | invoice | other (stored as Evidence.upload_type when upload_type=evidence)",
     ),
+    lat: float | None = Query(None, description="Optional evidence latitude"),
+    lon: float | None = Query(None, description="Optional evidence longitude"),
+    demo: bool = Query(
+        False,
+        description="Mark this upload as demo evidence (required when DEMO_MODE=true)",
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
@@ -45,13 +51,21 @@ async def upload_file(
     demo_project_ok = True
     if settings.DEMO_MODE:
         if str(upload_type) != "evidence":
-            raise HTTPException(status_code=423, detail="Demo mode: only evidence uploads are allowed")
+            raise HTTPException(status_code=403, detail="Demo mode: only evidence uploads are allowed")
+        if not demo:
+            raise HTTPException(
+                status_code=400,
+                detail="Demo mode: evidence must be tagged demo=true",
+            )
         if report_id is None and token_uid is None:
             raise HTTPException(
                 status_code=400,
                 detail="Demo mode: report_id or token_uid is required for evidence uploads",
             )
         demo_project_ok = False
+    else:
+        if demo:
+            raise HTTPException(status_code=403, detail="demo=true is only allowed when DEMO_MODE=true")
 
     material_token_id = None
     if token_uid is not None:
@@ -104,7 +118,7 @@ async def upload_file(
         raise HTTPException(status_code=403, detail="Demo mode: uploads are allowed only for DEMO projects")
 
     try:
-        saved = await save_upload_with_hash(file, upload_type)
+        saved = await save_upload_with_hash(file, upload_type, demo=bool(settings.DEMO_MODE and demo))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -122,8 +136,10 @@ async def upload_file(
         created_by=current_user.id,
         report_id=report_id,
         material_token_id=material_token_id,
-        demo_only=bool(settings.DEMO_MODE),
-        non_compliant=bool(settings.DEMO_MODE),
+        lat=lat,
+        lon=lon,
+        demo_only=bool(settings.DEMO_MODE and demo),
+        non_compliant=bool(settings.DEMO_MODE and demo),
     )
     db.add(evidence)
     await db.commit()
@@ -149,6 +165,8 @@ async def upload_file(
             "content_type": saved.get("content_type"),
             "report_id": str(report_id) if report_id else None,
             "token_uid": token_uid,
+            "lat": lat,
+            "lon": lon,
             "demo_mode": bool(settings.DEMO_MODE),
             "demo_only": bool(settings.DEMO_MODE),
             "non_compliant": bool(settings.DEMO_MODE),

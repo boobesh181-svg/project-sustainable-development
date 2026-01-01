@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     # Uploads
     UPLOAD_ROOT: str = str(_BACKEND_ROOT / "uploads")
 
+    # Demo uploads (sandbox)
+    DEMO_UPLOAD_ROOT: str = Field(
+        str(_BACKEND_ROOT / "demo_uploads"),
+        description="Storage root for sandboxed demo evidence when DEMO_MODE=true",
+    )
+
     # Feature gates (default OFF for regulator-grade MRV mode)
     ENABLE_MRV_INGESTION: bool = Field(
         False,

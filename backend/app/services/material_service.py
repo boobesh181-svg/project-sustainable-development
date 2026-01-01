@@ -1,16 +1,24 @@
 """Material token service: issuance, redemption, and one-time enforcement."""
 
 from uuid import UUID
+from fastapi import HTTPException
+from starlette import status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.models.material_token import MaterialToken
 from app.schemas.material import MaterialTokenCreate, MaterialTokenRedeem
+from app.models.supplier import Supplier
 from app.services.audit_log_service import write_audit_log
 
 
 async def issue_material_token(
-    db: AsyncSession, data: MaterialTokenCreate
+    db: AsyncSession,
+    data: MaterialTokenCreate,
+    *,
+    actor_email: str,
+    actor_user_id: UUID | None,
 ) -> MaterialToken:
     """
     Issue a new material token (unredeemed state).
@@ -21,6 +29,12 @@ async def issue_material_token(
     - Used to authorize one delivery
     - Action is logged to audit trail
     """
+    if settings.DEMO_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo mode: material token issuance is disabled.",
+        )
+
     token = MaterialToken(
         project_id=data.project_id,
         material_code=data.material_code,
@@ -28,7 +42,8 @@ async def issue_material_token(
         quantity=data.quantity,
         unit=data.unit,
         supplier_name=data.supplier_name,
-        issued_by=data.issued_by,
+        supplier_id=data.supplier_id,
+        issued_by=actor_email,
         redeemed=False,
     )
 
@@ -39,7 +54,8 @@ async def issue_material_token(
     # Log to audit trail
     await write_audit_log(
         db=db,
-        actor=data.issued_by,
+        actor=actor_email,
+        actor_user_id=actor_user_id,
         action="TOKEN_ISSUED",
         entity_type="MaterialToken",
         entity_id=token.token_uid,
@@ -50,6 +66,7 @@ async def issue_material_token(
             "quantity": float(data.quantity),
             "unit": data.unit,
             "supplier_name": data.supplier_name,
+            "supplier_id": str(data.supplier_id) if data.supplier_id else None,
             "token_uid": token.token_uid,
         },
     )
@@ -65,6 +82,7 @@ async def redeem_material_token(
     *,
     actor: str = "system",
     actor_user_id: UUID | None = None,
+    supplier_id: UUID | None = None,
 ) -> MaterialToken:
     """
     Redeem a material token with delivery evidence (one-time only).
@@ -78,6 +96,12 @@ async def redeem_material_token(
     - Second redemption blocked
     - Action is logged to audit trail
     """
+    if settings.DEMO_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo mode: material token redemption is disabled.",
+        )
+
     result = await db.execute(
         select(MaterialToken).where(MaterialToken.token_uid == token_uid)
     )
@@ -94,6 +118,15 @@ async def redeem_material_token(
     token.delivery_lat = payload.delivery_lat
     token.delivery_lon = payload.delivery_lon
     token.supplier_invoice_ref = payload.supplier_invoice_ref
+    token.batch_id = payload.batch_id
+    token.supplier_id = supplier_id or token.supplier_id
+    token.delivery_timestamp = payload.delivery_timestamp
+
+    # If the supplier did not provide a timestamp, use system receipt time.
+    if token.delivery_timestamp is None:
+        from datetime import datetime, timezone
+
+        token.delivery_timestamp = datetime.now(timezone.utc)
 
     # Mark as redeemed (triggers immutability)
     token.redeem()
@@ -112,6 +145,9 @@ async def redeem_material_token(
         event_payload={
             "delivery_lat": payload.delivery_lat,
             "delivery_lon": payload.delivery_lon,
+            "delivery_timestamp": token.delivery_timestamp.isoformat() if token.delivery_timestamp else None,
+            "batch_id": payload.batch_id,
+            "supplier_id": str(token.supplier_id) if token.supplier_id else None,
             "supplier_invoice_ref": payload.supplier_invoice_ref,
             "photo_path": delivery_photo_path,
         },

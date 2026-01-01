@@ -1,9 +1,12 @@
 """Delivery verification service: tamper-proof evidence creation and validation."""
 
 from uuid import UUID
+from fastapi import HTTPException
+from starlette import status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.models.delivery_verification import (
     DeliveryVerification,
     compute_photo_fingerprint,
@@ -36,6 +39,12 @@ async def create_delivery_verification(
     - Verification starts unverified (pending inspector approval)
     - One verification per material token (unique constraint)
     """
+    if settings.DEMO_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo mode: delivery verification creation is disabled.",
+        )
+
     # Validate material token exists and is redeemed
     result = await db.execute(
         select(MaterialToken).where(MaterialToken.id == data.material_token_id)
@@ -124,6 +133,12 @@ async def approve_delivery_verification(
     - Once approved, record is immutable
     - Inspector identity recorded
     """
+    if settings.DEMO_MODE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Demo mode: delivery verification approval is disabled.",
+        )
+
     result = await db.execute(
         select(DeliveryVerification).where(DeliveryVerification.id == verification_id)
     )

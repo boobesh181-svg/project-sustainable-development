@@ -3,6 +3,7 @@
 import os
 import uuid
 from uuid import UUID
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from sqlalchemy import select
@@ -97,8 +98,12 @@ async def issue_token(
 ):
     """Issue a new material token (unredeemed state)."""
     try:
-        _ = current_user
-        return await issue_material_token(db, payload)
+        return await issue_material_token(
+            db,
+            payload,
+            actor_email=current_user.email,
+            actor_user_id=current_user.id,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -109,6 +114,8 @@ async def redeem_token(
     delivery_lat: float = Form(...),
     delivery_lon: float = Form(...),
     supplier_invoice_ref: str = Form(...),
+    batch_id: str | None = Form(None),
+    delivery_timestamp: datetime | None = Form(None),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(role_required([RoleName.SUPPLIER])),
@@ -156,6 +163,8 @@ async def redeem_token(
             delivery_lat=delivery_lat,
             delivery_lon=delivery_lon,
             supplier_invoice_ref=supplier_invoice_ref,
+            batch_id=batch_id,
+            delivery_timestamp=delivery_timestamp,
         )
         # Record who submitted in the audit log.
         return await redeem_material_token(
@@ -165,6 +174,7 @@ async def redeem_token(
             delivery_photo_path=filepath,
             actor=current_user.email,
             actor_user_id=current_user.id,
+            supplier_id=current_user.supplier.id if getattr(current_user, "supplier", None) is not None else None,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

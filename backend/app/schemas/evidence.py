@@ -11,6 +11,7 @@ class EvidenceOut(BaseModel):
     upload_type: str
     storage_path: str
     sha256: str
+    evidence_hash: str
     size_bytes: int
     content_type: str | None
     original_filename: str | None
@@ -18,6 +19,8 @@ class EvidenceOut(BaseModel):
     created_by: UUID | None
     report_id: UUID | None
     material_token_id: UUID | None
+    lat: float | None = None
+    lon: float | None = None
     verified_at: datetime | None
     verified_by: UUID | None
     decision: str | None = None

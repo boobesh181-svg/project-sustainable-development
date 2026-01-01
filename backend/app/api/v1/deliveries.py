@@ -66,7 +66,7 @@ async def create_verification(
     payload: DeliveryVerificationCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(
-        role_required([RoleName.CONTRACTOR, RoleName.PROJECT_MANAGER, RoleName.SUPPLIER])
+        role_required([RoleName.CONTRACTOR, RoleName.PROJECT_MANAGER])
     ),
 ):
     """

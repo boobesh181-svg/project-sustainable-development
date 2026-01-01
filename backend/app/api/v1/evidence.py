@@ -4,8 +4,6 @@ Evidence rows are append-only; after verification they are immutable at DB level
 """
 
 from uuid import UUID
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +12,7 @@ from app.models.evidence import Evidence
 from app.models.role import RoleName
 from app.models.user import User
 from app.schemas.evidence import EvidenceOut, EvidenceVerify
-from app.services.audit_log_service import write_audit_log
+from app.services.evidence_service import verify_evidence as verify_evidence_service
 
 
 router = APIRouter(prefix="/api/v1/evidence", tags=["Evidence"])
@@ -45,35 +43,16 @@ async def verify_evidence(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(role_required([RoleName.ADMIN, RoleName.MRV_OFFICER])),
 ) -> EvidenceOut:
-    evidence = await db.get(Evidence, evidence_id)
-    if evidence is None:
-        raise HTTPException(status_code=404, detail="Evidence not found")
-
-    if evidence.verified_at is not None:
-        raise HTTPException(status_code=400, detail="Evidence already verified")
-
-    evidence.verified_at = datetime.now(timezone.utc)
-    evidence.verified_by = current_user.id
-    evidence.decision = payload.decision
-    evidence.verification_notes = payload.verification_notes
-
-    db.add(evidence)
-    await db.commit()
-    await db.refresh(evidence)
-
-    await write_audit_log(
-        db=db,
-        actor=current_user.email,
-        actor_user_id=current_user.id,
-        action="EVIDENCE_VERIFIED",
-        entity_type="Evidence",
-        entity_id=str(evidence.id),
-        event_payload={
-            "sha256": evidence.sha256,
-            "report_id": str(evidence.report_id) if evidence.report_id else None,
-            "decision": payload.decision,
-            "verification_notes": payload.verification_notes,
-        },
-    )
-
-    return evidence
+    try:
+        return await verify_evidence_service(
+            db,
+            evidence_id=evidence_id,
+            payload=payload,
+            actor_user_id=current_user.id,
+            actor_email=current_user.email,
+        )
+    except ValueError as e:
+        msg = str(e)
+        if "not found" in msg.lower():
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)

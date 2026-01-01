@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import uuid
 from enum import Enum as PyEnum
 
-from sqlalchemy import CheckConstraint, DateTime, Enum as SAEnum, ForeignKey, Numeric, String, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum as SAEnum, ForeignKey, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -68,6 +68,14 @@ class MRVReport(Base):
 
     # Evidence
     certificate_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    # LOI/pilot tagging (non-claim posture)
+    pilot: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
 
     # Snapshot for reproducibility (ISO-14064)
     emission_factor_version_snapshot: Mapped[str | None] = mapped_column(

@@ -10,8 +10,10 @@ import {
   createReport,
   fetchDashboardCharts,
   fetchDashboardSummary,
+  fetchHealth,
   fetchProjects,
   fetchReports,
+  downloadComplianceBundle,
 } from '../services/api';
 import { useAuth } from '../state/AuthContext';
 import { useToast } from '../state/ToastContext';
@@ -41,6 +43,9 @@ export const RoleHome: React.FC = () => {
   const role = user?.role ?? '';
   const toast = useToast();
 
+  const [demoMode, setDemoMode] = useState(false);
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -67,6 +72,22 @@ export const RoleHome: React.FC = () => {
   }, [role]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const checkHealth = async () => {
+      try {
+        const h = await fetchHealth();
+        if (cancelled) return;
+        setDemoMode(h.mode === 'demo');
+      } catch {
+        if (cancelled) return;
+        setDemoMode(false);
+      }
+    };
+
+    checkHealth();
+    const interval = window.setInterval(checkHealth, 30000);
+
     (async () => {
       setLoading(true);
       setError(null);
@@ -94,12 +115,44 @@ export const RoleHome: React.FC = () => {
         setLoading(false);
       }
     })();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
   }, [reportParams, role]);
+
+  const onExportComplianceBundle = async (reportId: string) => {
+    try {
+      const blob = await downloadComplianceBundle(reportId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `mrv_compliance_bundle_${reportId}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.push('success', 'Compliance bundle downloaded.');
+    } catch (err: unknown) {
+      toast.push('error', getErrorMessage(err, 'Failed to export compliance bundle'));
+    }
+  };
+
+  const lockingTooltip = 'LOCKED MRV reports are immutable (regulator-grade audit trail). Approved reports can be LOCKED by an admin to freeze calculations and evidence references.';
+  const efTooltip = 'Emission factors are versioned and snapshotted in MRV reports. Once a report is approved/locked, its emission factor hash/value snapshot prevents recalculation drift.';
+  const anomalyTooltip = 'Anomaly flags are automated alerts (e.g., unexpected values). They signal risk and require review, but do not change MRV totals by themselves.';
 
   const projectsTitle = role === 'contractor' ? 'My Projects' : 'Projects';
   const reportsTitle = role === 'mrv_officer' ? 'Pending Reviews' : role === 'admin' ? 'Pending Approvals' : 'My Reports';
 
   const canCreateReport = role === 'contractor' || role === 'project_manager';
+  const hasPilotData = useMemo(
+    () => projects.some((p) => Boolean(p.pilot)) || reports.some((r) => Boolean(r.pilot)) || adminApprovedReports.some((r) => Boolean(r.pilot)),
+    [projects, reports, adminApprovedReports]
+  );
+
+  const demoBlockedMsg = 'This action is disabled in DEMO mode';
 
   const refreshReports = async () => {
     const [r, approved] = await Promise.all([
@@ -162,10 +215,25 @@ export const RoleHome: React.FC = () => {
           <span className="text-xs text-slate-400">Signed in as {user?.email} ({role})</span>
         </div>
         <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            {demoMode ? (
+              <Badge title="Demo Mode">Demo Mode</Badge>
+            ) : null}
+            {hasPilotData ? (
+              <Badge title="Pilot-tagged data (not a compliance claim)">Pilot Data</Badge>
+            ) : null}
+            <Badge title="This demo is for understanding workflow and auditability, not for making compliance claims.">Not a Compliance Claim</Badge>
+          </div>
           <span className="text-xs text-slate-400">Backend: /api (Vite proxy)</span>
           <Link className="text-sm text-slate-200 hover:text-slate-50" to="/logout">Logout</Link>
         </div>
       </header>
+
+      {demoMode ? (
+        <div className="border-b border-slate-800 bg-slate-900/60 px-6 py-2 text-sm text-slate-100">
+          <span className="font-semibold">DEMO MODE:</span> No real compliance claims. Writes may be restricted.
+        </div>
+      ) : null}
 
       <main className="flex-1 p-6">
         {loading && <p className="text-slate-300">Loading dashboard…</p>}
@@ -173,12 +241,40 @@ export const RoleHome: React.FC = () => {
 
         {summary && !loading && (
           <>
+            <div className="mb-2 flex items-center gap-2 text-sm text-slate-200">
+              <span className="font-medium">KPIs</span>
+              <button
+                type="button"
+                className="text-[11px] text-slate-500"
+                title="What am I seeing? These KPIs are aggregated indicators computed from projects, MRV reports, evidence hashes, and anomalies. In Demo/Pilot mode, they are illustrative and not compliance claims."
+                onClick={() => setShowHowItWorks(true)}
+              >
+                What am I seeing? (click)
+              </button>
+            </div>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
               <KpiCard label="Active Projects" value={summary.active_projects} />
-              <KpiCard label="Total CO₂ Saved (tCO₂e)" value={summary.total_co2_saved_t.toFixed(2)} />
-              <KpiCard label="Open Anomalies" value={summary.open_anomalies} />
+              <KpiCard label="Total CO₂ Saved (tCO₂e)" tooltip={efTooltip} value={summary.total_co2_saved_t.toFixed(2)} />
+              <KpiCard label="Open Anomalies" tooltip={anomalyTooltip} value={summary.open_anomalies} />
               <KpiCard label="Open Whistleblower Cases" value={summary.open_whistleblower_cases} />
             </div>
+
+            <details className="mb-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+              <summary className="cursor-pointer text-sm font-medium text-slate-100">
+                How this is calculated
+              </summary>
+              <div className="mt-3 space-y-2 text-sm text-slate-300">
+                <p>
+                  <span className="font-medium text-slate-200">MRV locking:</span> <span title={lockingTooltip}>Approved reports can be locked to make them immutable.</span>
+                </p>
+                <p>
+                  <span className="font-medium text-slate-200">Emission factor versioning:</span> <span title={efTooltip}>Reports snapshot the emission factor hash/value to prevent drift.</span>
+                </p>
+                <p>
+                  <span className="font-medium text-slate-200">Anomaly flags:</span> <span title={anomalyTooltip}>Alerts highlight unusual patterns for review.</span>
+                </p>
+              </div>
+            </details>
 
             {canCreateReport && (
               <div className="mb-6">
@@ -262,10 +358,11 @@ export const RoleHome: React.FC = () => {
                       <div className="lg:col-span-6 flex justify-end">
                         <button
                           type="submit"
-                          disabled={creating}
+                          disabled={creating || demoMode}
                           className="rounded-lg bg-slate-50 text-slate-900 px-3 py-2 text-sm font-medium disabled:opacity-60"
+                          title={demoMode ? demoBlockedMsg : undefined}
                         >
-                          {creating ? 'Creating…' : 'Create report'}
+                          {creating ? 'Creating…' : demoMode ? 'Create report (disabled)' : 'Create report'}
                         </button>
                       </div>
                     </form>
@@ -282,7 +379,10 @@ export const RoleHome: React.FC = () => {
                   <ul className="space-y-2">
                     {projects.slice(0, 10).map((p) => (
                       <li key={p.id} className="text-sm flex items-center justify-between">
-                        <span className="text-slate-200">{p.name}</span>
+                        <span className="text-slate-200 flex items-center gap-2">
+                          <span>{p.name}</span>
+                          {p.pilot ? <Badge title="Pilot-tagged data">Pilot Data</Badge> : null}
+                        </span>
                         <span className="text-xs text-slate-500">{p.status}</span>
                       </li>
                     ))}
@@ -290,7 +390,7 @@ export const RoleHome: React.FC = () => {
                 )}
               </Panel>
 
-              <Panel title={reportsTitle}>
+              <Panel title={reportsTitle} titleTooltip={lockingTooltip}>
                 {reports.length === 0 ? (
                   <p className="text-sm text-slate-400">No reports in this queue.</p>
                 ) : (
@@ -298,19 +398,35 @@ export const RoleHome: React.FC = () => {
                     {reports.slice(0, 10).map((r) => (
                       <li key={r.id} className="text-sm flex items-center justify-between gap-3">
                         <div className="flex flex-col">
-                          <span className="text-slate-200">{r.reporting_period} · {r.status} · {r.total_co2e.toFixed(2)} tCO₂e</span>
+                          <span className="text-slate-200 flex items-center gap-2">
+                            <span>{r.reporting_period} · {r.status} · {r.total_co2e.toFixed(2)} tCO₂e</span>
+                            {r.pilot ? <Badge title="Pilot-tagged data">Pilot Data</Badge> : null}
+                          </span>
                           <span className="text-xs text-slate-500">{new Date(r.created_at).toLocaleString()}</span>
                         </div>
-                        {getPrimaryAction(r.status) ? (
-                          <button
-                            type="button"
-                            disabled={advancingId === r.id}
-                            onClick={() => onAdvance(r.id, getPrimaryAction(r.status)!.next)}
-                            className="rounded-lg bg-slate-50 text-slate-900 px-3 py-1.5 text-xs font-medium disabled:opacity-60"
-                          >
-                            {advancingId === r.id ? 'Working…' : getPrimaryAction(r.status)!.label}
-                          </button>
-                        ) : null}
+                        <div className="flex items-center gap-2">
+                          {(r.status === 'APPROVED' || r.status === 'LOCKED') ? (
+                            <button
+                              type="button"
+                              onClick={() => onExportComplianceBundle(r.id)}
+                              className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-950"
+                              title="Download the deterministic compliance ZIP bundle for this MRV report."
+                            >
+                              Export Compliance Bundle
+                            </button>
+                          ) : null}
+                          {getPrimaryAction(r.status) ? (
+                            <button
+                              type="button"
+                              disabled={advancingId === r.id || demoMode}
+                              onClick={() => onAdvance(r.id, getPrimaryAction(r.status)!.next)}
+                              className="rounded-lg bg-slate-50 text-slate-900 px-3 py-1.5 text-xs font-medium disabled:opacity-60"
+                              title={demoMode ? demoBlockedMsg : (r.status === 'APPROVED' ? lockingTooltip : undefined)}
+                            >
+                              {advancingId === r.id ? 'Working…' : getPrimaryAction(r.status)!.label}
+                            </button>
+                          ) : null}
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -328,14 +444,18 @@ export const RoleHome: React.FC = () => {
                       {adminApprovedReports.slice(0, 10).map((r) => (
                         <li key={r.id} className="text-sm flex items-center justify-between gap-3">
                           <div className="flex flex-col">
-                            <span className="text-slate-200">{r.reporting_period} · {r.status} · {r.total_co2e.toFixed(2)} tCO₂e</span>
+                            <span className="text-slate-200 flex items-center gap-2">
+                              <span>{r.reporting_period} · {r.status} · {r.total_co2e.toFixed(2)} tCO₂e</span>
+                              {r.pilot ? <Badge title="Pilot-tagged data">Pilot Data</Badge> : null}
+                            </span>
                             <span className="text-xs text-slate-500">{new Date(r.created_at).toLocaleString()}</span>
                           </div>
                           <button
                             type="button"
-                            disabled={advancingId === r.id}
+                            disabled={advancingId === r.id || demoMode}
                             onClick={() => onAdvance(r.id, 'LOCKED')}
                             className="rounded-lg bg-slate-50 text-slate-900 px-3 py-1.5 text-xs font-medium disabled:opacity-60"
+                            title={demoMode ? demoBlockedMsg : undefined}
                           >
                             {advancingId === r.id ? 'Working…' : 'Lock'}
                           </button>
@@ -373,20 +493,91 @@ export const RoleHome: React.FC = () => {
           </>
         )}
       </main>
+
+      {showHowItWorks ? (
+        <HowItWorksModal
+          onClose={() => setShowHowItWorks(false)}
+          demoMode={demoMode}
+        />
+      ) : null}
     </div>
   );
 };
 
-const Panel: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+const Badge: React.FC<{ children: React.ReactNode; title?: string }> = ({ children, title }) => (
+  <span
+    className="rounded-md border border-slate-800 bg-slate-950/40 px-2 py-0.5 text-[11px] text-slate-200"
+    title={title}
+  >
+    {children}
+  </span>
+);
+
+const HowItWorksModal: React.FC<{ onClose: () => void; demoMode: boolean }> = ({ onClose, demoMode }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
+    <div className="w-full max-w-2xl rounded-xl border border-slate-800 bg-slate-900 p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-50">How this works (read-only)</h2>
+          <p className="mt-1 text-xs text-slate-400">
+            A quick, non-technical explanation of what you’re seeing.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-lg border border-slate-700 bg-slate-950/40 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-950"
+        >
+          Close
+        </button>
+      </div>
+
+      <div className="mt-4 space-y-3 text-sm text-slate-200">
+        <p>
+          This dashboard shows an MRV (Measurement, Reporting, Verification) workflow for sustainable construction materials.
+          It focuses on auditability: versioned emission factors, evidence hashes, and immutable lifecycle records.
+        </p>
+        <p>
+          <span className="font-medium">KPIs</span> are aggregated indicators computed from the database (projects, MRV reports, anomalies).
+        </p>
+        <p>
+          <span className="font-medium">Evidence</span> is stored with cryptographic hashes so reviewers can verify integrity.
+        </p>
+        <p>
+          <span className="font-medium">Important:</span> {demoMode ? 'DEMO MODE is enabled.' : 'This environment may contain pilot-tagged data.'} This is not a compliance claim system.
+        </p>
+      </div>
+    </div>
+  </div>
+);
+
+const Panel: React.FC<{ title: string; titleTooltip?: string; children: React.ReactNode }> = ({ title, titleTooltip, children }) => (
   <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-    <div className="text-xs uppercase tracking-wide text-slate-400 mb-3">{title}</div>
+    <div className="text-xs uppercase tracking-wide text-slate-400 mb-3 flex items-center gap-2">
+      <span>{title}</span>
+      {titleTooltip ? (
+        <span
+          className="text-[11px] text-slate-500"
+          title={titleTooltip}
+        >
+          (?)
+        </span>
+      ) : null}
+    </div>
     {children}
   </div>
 );
 
-const KpiCard: React.FC<{ label: string; value: string | number }> = ({ label, value }) => (
+const KpiCard: React.FC<{ label: string; tooltip?: string; value: string | number }> = ({ label, tooltip, value }) => (
   <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4 flex flex-col gap-2">
-    <span className="text-xs uppercase tracking-wide text-slate-400">{label}</span>
+    <span className="text-xs uppercase tracking-wide text-slate-400 flex items-center gap-2">
+      <span>{label}</span>
+      {tooltip ? (
+        <span className="text-[11px] text-slate-500" title={tooltip}>
+          (?)
+        </span>
+      ) : null}
+    </span>
     <span className="text-2xl font-semibold">{value}</span>
   </div>
 );
