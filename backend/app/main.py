@@ -9,6 +9,7 @@ import logging
 import uuid
 
 from app.core.config import settings
+from app.api import demo_router as demo_surface
 from app.api.v1 import (
     auth,
     users,
@@ -205,6 +206,10 @@ app.include_router(tokens.router, prefix="/api/v1/tokens", tags=["tokens"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
 app.include_router(projects.router, prefix="/api/v1/projects", tags=["projects"])
 app.include_router(demo.router, prefix="/api/v1/demo", tags=["demo"])
+
+# Minimal orchestration surface for narrative demos (calls canonical services; no new business logic).
+app.include_router(demo_surface.router)
+
 app.include_router(public.router, prefix="/api/v1/public", tags=["public"])
 app.include_router(anomalies.router, prefix="/api/v1/alerts", tags=["anomalies"])
 app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["dashboard"])
