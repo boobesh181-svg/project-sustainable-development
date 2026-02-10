@@ -8,6 +8,13 @@ This is a **regulator-grade Materials, Resources, and Verification (MRV) system*
 - **Frontend**: `/frontend` (React + TypeScript + Tailwind/Recharts) — dashboard-only; no editing UI.
 - **Database**: PostgreSQL only (no SQLite in production); async SQLAlchemy 2.0+; Alembic migrations mandatory.
 
+## System Constitution (Non-Negotiable)
+
+The canonical constitution for this app lives in `SYSTEM_RULES.md` at repo root.
+
+- If a requested feature conflicts with `SYSTEM_RULES.md`, refuse the feature (do not silently adapt).
+- The platform is a procedural evidence workflow system: store facts once; interpret many times.
+
 ### Key Principles (Non-Negotiable)
 
 1. **ISO-14064 Reproducibility**: All CO₂ calculations must be versioned (emission factors, methodologies). No floating-point surprises.
