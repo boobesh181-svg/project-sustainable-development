@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,6 +28,8 @@ from app.api.v1 import (
     audit_logs,
     mrv_company,
     mrv_export,
+    acknowledgements,
+    accounting_reports,
 )
 from app.db.session import init_db
 from app.core.audit_context import set_audit_request_context
@@ -50,6 +53,9 @@ async def lifespan(app_instance: FastAPI):
     # Startup
     await init_db()
 
+    sweeper_stop: asyncio.Event | None = None
+    sweeper_task: asyncio.Task | None = None
+
     # Demo mode auto-seeding (must succeed; no silent fallbacks)
     if settings.DEMO_MODE:
         from app.db.session import AsyncSessionLocal
@@ -59,8 +65,50 @@ async def lifespan(app_instance: FastAPI):
             await ensure_demo_seeded(db)
         logger.info("DEMO_MODE enabled: demo data ensured")
 
+    # Background sweeper: ensure expired notifications become DEEMED_OBSERVED
+    # without requiring a user-triggered read.
+    if settings.ACK_ENABLE_BACKGROUND_SWEEPER and (
+        (not settings.DEMO_MODE) or settings.ACK_ENABLE_SWEEPER_IN_DEMO
+    ):
+        from app.db.session import AsyncSessionLocal
+        from app.services.acknowledgement_service import sweep_expired_notifications
+
+        sweeper_stop = asyncio.Event()
+
+        async def _ack_sweeper_loop() -> None:
+            interval = int(settings.ACK_SWEEPER_INTERVAL_SECONDS)
+            batch = int(settings.ACK_SWEEPER_BATCH_SIZE)
+            while not sweeper_stop.is_set():
+                try:
+                    async with AsyncSessionLocal() as db:
+                        count = await sweep_expired_notifications(db, limit=batch)
+                    if count:
+                        logger.info("Ack sweeper appended %s NO_RESPONSE_AUTO responses", count)
+                except Exception:
+                    logger.exception("Ack sweeper loop failed")
+
+                try:
+                    await asyncio.wait_for(sweeper_stop.wait(), timeout=interval)
+                except asyncio.TimeoutError:
+                    pass
+
+        sweeper_task = asyncio.create_task(_ack_sweeper_loop())
+        logger.info(
+            "Ack sweeper enabled (interval=%ss batch=%s)",
+            settings.ACK_SWEEPER_INTERVAL_SECONDS,
+            settings.ACK_SWEEPER_BATCH_SIZE,
+        )
+
     yield
     # Shutdown (cleanup would go here if needed)
+    if sweeper_stop is not None:
+        sweeper_stop.set()
+    if sweeper_task is not None:
+        sweeper_task.cancel()
+        try:
+            await sweeper_task
+        except Exception:
+            pass
 
 
 app = FastAPI(
@@ -124,6 +172,10 @@ async def demo_mode_write_lock_middleware(request: Request, call_next):
         if path.startswith("/api/v1/anomalies/run/"):
             return await call_next(request)
 
+        # Allow acknowledgement responses/notifications (watermarked) in DEMO_MODE.
+        if path.startswith("/api/v1/notifications/") or path.startswith("/api/v1/events/"):
+            return await call_next(request)
+
         return _demo_write_locked_response()
 
     return await call_next(request)
@@ -168,6 +220,8 @@ app.include_router(anomaly_detection.router)
 app.include_router(audit_logs.router)
 app.include_router(mrv_company.router)
 app.include_router(mrv_export.router)
+app.include_router(acknowledgements.router)
+app.include_router(accounting_reports.router)
 
 # Legacy MRV router (guarded import)
 try:

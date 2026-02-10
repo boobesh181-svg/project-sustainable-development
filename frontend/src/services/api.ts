@@ -253,3 +253,69 @@ export async function downloadComplianceBundle(reportId: string): Promise<Blob> 
   }
   return res.blob();
 }
+
+// ---------------- Acknowledgements ----------------
+
+export type DeliveryChannel = 'in_app' | 'email' | 'webhook';
+export type AckResponseType = 'acknowledge' | 'comment' | 'dispute';
+
+export interface NotificationOut {
+  id: string;
+  activity_id: string;
+  notified_user_id: string;
+  notification_timestamp: string;
+  response_deadline_timestamp: string;
+  delivery_channel: DeliveryChannel;
+  demo_watermark: boolean;
+  seconds_remaining?: number | null;
+}
+
+export interface ResponseOut {
+  id: string;
+  notification_id: string;
+  responder_user_id: string | null;
+  response_type: string;
+  response_timestamp: string;
+  response_comment: string | null;
+  demo_watermark: boolean;
+}
+
+export interface AcknowledgementStatusOut {
+  activity_id: string;
+  derived_status: 'UNSEEN' | 'SEEN' | 'ACKNOWLEDGED' | 'DISPUTED' | 'DEEMED_OBSERVED';
+  computed_at: string;
+  notifications: Array<{
+    notification: NotificationOut;
+    responses: ResponseOut[];
+  }>;
+}
+
+export interface ProjectAcknowledgementSummaryOut {
+  project_id: string;
+  derived_status: string;
+  disputed_count: number;
+  acknowledged_count: number;
+  deemed_observed_count: number;
+  unseen_count: number;
+  computed_at: string;
+}
+
+export async function fetchPendingNotifications(limit = 50): Promise<NotificationOut[]> {
+  const res = await apiClient.get<NotificationOut[]>('/api/v1/notifications/pending', { params: { limit } });
+  return res.data;
+}
+
+export async function respondToNotification(notificationId: string, payload: { response_type: AckResponseType; response_comment?: string | null; }): Promise<ResponseOut> {
+  const res = await apiClient.post<ResponseOut>(`/api/v1/notifications/${notificationId}/respond`, payload);
+  return res.data;
+}
+
+export async function fetchAcknowledgementStatus(activityId: string): Promise<AcknowledgementStatusOut> {
+  const res = await apiClient.get<AcknowledgementStatusOut>(`/api/v1/events/${activityId}/acknowledgement-status`);
+  return res.data;
+}
+
+export async function fetchProjectAcknowledgementSummary(projectId: string): Promise<ProjectAcknowledgementSummaryOut> {
+  const res = await apiClient.get<ProjectAcknowledgementSummaryOut>(`/api/v1/ack/projects/${projectId}/summary`);
+  return res.data;
+}

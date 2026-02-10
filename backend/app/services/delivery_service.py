@@ -1,5 +1,6 @@
 """Delivery verification service: tamper-proof evidence creation and validation."""
 
+import logging
 from uuid import UUID
 from fastapi import HTTPException
 from starlette import status
@@ -20,6 +21,15 @@ from app.schemas.delivery import (
     DeliveryIntegrityCheck,
 )
 from app.services.audit_log_service import write_audit_log
+from app.services.acknowledgement_service import (
+    create_activity_for_delivery_verification_created,
+    notify_activity,
+)
+from app.models.event_notification import DeliveryChannel
+from app.models.user import User
+
+
+logger = logging.getLogger(__name__)
 
 
 async def create_delivery_verification(
@@ -111,6 +121,30 @@ async def create_delivery_verification(
             "gps_hash": gps_hash,
         },
     )
+
+    # Contemporaneous acknowledgement record + notification (does not change MRV lifecycle).
+    try:
+        activity = await create_activity_for_delivery_verification_created(
+            db,
+            verification=verification,
+            token=token,
+            actor_user_id=actor_user_id,
+            occurred_at=verification.verified_at,
+        )
+
+        actor_user = await db.get(User, actor_user_id)
+        if actor_user is not None:
+            await notify_activity(
+                db,
+                activity_id=activity.id,
+                requested_notified_user_id=None,
+                delivery_channel=DeliveryChannel.IN_APP,
+                response_window_hours=None,
+                actor=actor_user,
+            )
+    except Exception:
+        # Acknowledgement layer must never block delivery verification creation.
+        logger.exception("Acknowledgement layer failed during delivery verification creation")
 
     return verification
 

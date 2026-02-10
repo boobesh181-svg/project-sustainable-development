@@ -77,6 +77,38 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Acknowledgements
+    ACK_RESPONSE_WINDOW_HOURS: int = Field(
+        48,
+        ge=1,
+        le=168,
+        description="Default response window for event acknowledgement notifications (hours).",
+    )
+
+    ACK_ENABLE_BACKGROUND_SWEEPER: bool = Field(
+        True,
+        description=(
+            "When true, the backend runs a periodic sweeper that appends NO_RESPONSE_AUTO "
+            "responses for expired notifications so silence becomes DEEMED_OBSERVED without user action."
+        ),
+    )
+    ACK_ENABLE_SWEEPER_IN_DEMO: bool = Field(
+        False,
+        description="Allow the acknowledgement sweeper to run in DEMO_MODE (normally off to preserve demo write-lock posture).",
+    )
+    ACK_SWEEPER_INTERVAL_SECONDS: int = Field(
+        60,
+        ge=10,
+        le=3600,
+        description="Interval between sweeper runs (seconds).",
+    )
+    ACK_SWEEPER_BATCH_SIZE: int = Field(
+        200,
+        ge=10,
+        le=2000,
+        description="Max expired notifications processed per sweeper run.",
+    )
+
 
 # Default carbon factor mappings; can be overridden via DB or config table.
 CARBON_FACTORS_BASELINE = {

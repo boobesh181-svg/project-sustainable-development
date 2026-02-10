@@ -1,5 +1,6 @@
 """Material token service: issuance, redemption, and one-time enforcement."""
 
+import logging
 from uuid import UUID
 from fastapi import HTTPException
 from starlette import status
@@ -8,9 +9,18 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.models.material_token import MaterialToken
+from app.models.user import User
 from app.schemas.material import MaterialTokenCreate, MaterialTokenRedeem
 from app.models.supplier import Supplier
 from app.services.audit_log_service import write_audit_log
+from app.services.acknowledgement_service import (
+    create_activity_for_material_token_redemption,
+    notify_activity,
+)
+from app.models.event_notification import DeliveryChannel
+
+
+logger = logging.getLogger(__name__)
 
 
 async def issue_material_token(
@@ -153,6 +163,28 @@ async def redeem_material_token(
         },
         actor_user_id=actor_user_id,
     )
+
+    # Contemporaneous acknowledgement record + notification (does not change MRV lifecycle).
+    try:
+        activity = await create_activity_for_material_token_redemption(
+            db,
+            token=token,
+            actor_user_id=actor_user_id,
+            occurred_at=token.delivery_timestamp,
+        )
+        actor_user = await db.get(User, actor_user_id) if actor_user_id is not None else None
+        if actor_user is not None:
+            await notify_activity(
+                db,
+                activity_id=activity.id,
+                requested_notified_user_id=None,
+                delivery_channel=DeliveryChannel.IN_APP,
+                response_window_hours=None,
+                actor=actor_user,
+            )
+    except Exception:
+        # Acknowledgement layer must never block redemption execution.
+        logger.exception("Acknowledgement layer failed during token redemption")
 
     return token
 

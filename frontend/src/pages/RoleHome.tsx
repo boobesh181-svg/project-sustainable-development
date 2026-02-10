@@ -14,6 +14,8 @@ import {
   fetchProjects,
   fetchReports,
   downloadComplianceBundle,
+  ProjectAcknowledgementSummaryOut,
+  fetchProjectAcknowledgementSummary,
 } from '../services/api';
 import { useAuth } from '../state/AuthContext';
 import { useToast } from '../state/ToastContext';
@@ -24,6 +26,8 @@ import { AnomalyTimelineChart } from '../charts/AnomalyTimelineChart';
 import { DistanceHistogram } from '../charts/DistanceHistogram';
 import { SupplierRiskScatter } from '../charts/SupplierRiskScatter';
 import { Co2CostScatter } from '../charts/Co2CostScatter';
+
+import { SiteEventNotificationsPanel } from '../components/SiteEventNotificationsPanel';
 
 function getErrorMessage(error: unknown, fallback: string): string {
   if (typeof error === 'object' && error !== null) {
@@ -53,6 +57,8 @@ export const RoleHome: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [reports, setReports] = useState<MRVReportSummary[]>([]);
   const [adminApprovedReports, setAdminApprovedReports] = useState<MRVReportSummary[]>([]);
+
+  const [ackByProjectId, setAckByProjectId] = useState<Record<string, ProjectAcknowledgementSummaryOut>>({});
 
   const [creating, setCreating] = useState(false);
   const [advancingId, setAdvancingId] = useState<string | null>(null);
@@ -121,6 +127,38 @@ export const RoleHome: React.FC = () => {
       window.clearInterval(interval);
     };
   }, [reportParams, role]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const projectIds = Array.from(
+      new Set([
+        ...reports.map((r) => r.project_id),
+        ...adminApprovedReports.map((r) => r.project_id),
+      ])
+    ).slice(0, 30);
+
+    if (projectIds.length === 0) return;
+
+    (async () => {
+      const results = await Promise.allSettled(
+        projectIds.map((pid) => fetchProjectAcknowledgementSummary(pid))
+      );
+      if (cancelled) return;
+      setAckByProjectId((prev) => {
+        const next = { ...prev };
+        for (const r of results) {
+          if (r.status === 'fulfilled') {
+            next[r.value.project_id] = r.value;
+          }
+        }
+        return next;
+      });
+    })().catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reports, adminApprovedReports]);
 
   const onExportComplianceBundle = async (reportId: string) => {
     try {
@@ -257,6 +295,10 @@ export const RoleHome: React.FC = () => {
               <KpiCard label="Total CO₂ Saved (tCO₂e)" tooltip={efTooltip} value={summary.total_co2_saved_t.toFixed(2)} />
               <KpiCard label="Open Anomalies" tooltip={anomalyTooltip} value={summary.open_anomalies} />
               <KpiCard label="Open Whistleblower Cases" value={summary.open_whistleblower_cases} />
+            </div>
+
+            <div className="mb-6">
+              <SiteEventNotificationsPanel />
             </div>
 
             <details className="mb-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
@@ -403,6 +445,10 @@ export const RoleHome: React.FC = () => {
                             {r.pilot ? <Badge title="Pilot-tagged data">Pilot Data</Badge> : null}
                           </span>
                           <span className="text-xs text-slate-500">{new Date(r.created_at).toLocaleString()}</span>
+                          <span className="text-xs text-slate-500">
+                            Acknowledgements: {ackByProjectId[r.project_id]?.derived_status ?? '—'}
+                            {ackByProjectId[r.project_id] ? ` (disputed: ${ackByProjectId[r.project_id].disputed_count})` : ''}
+                          </span>
                         </div>
                         <div className="flex items-center gap-2">
                           {(r.status === 'APPROVED' || r.status === 'LOCKED') ? (
@@ -449,6 +495,10 @@ export const RoleHome: React.FC = () => {
                               {r.pilot ? <Badge title="Pilot-tagged data">Pilot Data</Badge> : null}
                             </span>
                             <span className="text-xs text-slate-500">{new Date(r.created_at).toLocaleString()}</span>
+                            <span className="text-xs text-slate-500">
+                              Acknowledgements: {ackByProjectId[r.project_id]?.derived_status ?? '—'}
+                              {ackByProjectId[r.project_id] ? ` (disputed: ${ackByProjectId[r.project_id].disputed_count})` : ''}
+                            </span>
                           </div>
                           <button
                             type="button"

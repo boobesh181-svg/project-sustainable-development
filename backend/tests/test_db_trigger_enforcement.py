@@ -23,6 +23,11 @@ from app.models.mrv_report import MRVReport, MRVStatus
 from app.models.project import Project, ProjectStatus
 from app.models.role import Role, RoleName
 from app.models.user import User
+from app.models.material_token import MaterialToken
+from app.models.activity_record import ActivityRecord, ActivityType
+from app.models.event_notification import EventNotification, DeliveryChannel
+from app.models.event_response import EventResponse, ResponseType
+from app.models.event_status_ledger import EventStatusLedger, DerivedStatus
 
 
 def _db_reachable() -> bool:
@@ -203,6 +208,181 @@ async def test_evidence_db_becomes_immutable_after_verification():
             with pytest.raises(DBAPIError):
                 await session.flush()
 
+        finally:
+            await session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_acknowledgement_tables_are_append_only():
+    async with AsyncSessionLocal() as session:
+        await session.begin()
+        try:
+            contractor_role = await _get_or_create_role(session, RoleName.CONTRACTOR)
+            supplier_role = await _get_or_create_role(session, RoleName.SUPPLIER)
+
+            creator = await _create_user(session, role=contractor_role, email_prefix="creator")
+            supplier = await _create_user(session, role=supplier_role, email_prefix="supplier")
+
+            project = Project(
+                name=f"Ack Test Project {uuid.uuid4()}",
+                status=ProjectStatus.ACTIVE,
+                lat=1.0,
+                lon=1.0,
+                budget_usd=1000.0,
+                created_by=creator.id,
+            )
+            session.add(project)
+            await session.flush()
+
+            token = MaterialToken(
+                project_id=project.id,
+                material_code="CEM",
+                material_name="Cement",
+                quantity=1.0,
+                unit="t",
+                supplier_name="Test Supplier",
+                supplier_id=None,
+                issued_by=creator.email,
+                redeemed=False,
+            )
+            session.add(token)
+            await session.flush()
+
+            now = datetime.now(timezone.utc)
+            activity = ActivityRecord(
+                activity_type=ActivityType.MATERIAL_TOKEN_REDEEMED,
+                project_id=project.id,
+                material_token_id=token.id,
+                delivery_verification_id=None,
+                mrv_report_id=None,
+                occurred_at=now,
+                created_by_user_id=supplier.id,
+                activity_hash=ActivityRecord.compute_hash(
+                    activity_type=ActivityType.MATERIAL_TOKEN_REDEEMED,
+                    project_id=project.id,
+                    occurred_at=now,
+                    material_token_id=token.id,
+                    delivery_verification_id=None,
+                    mrv_report_id=None,
+                    created_by_user_id=supplier.id,
+                ),
+            )
+            session.add(activity)
+            await session.flush()
+
+            notif = EventNotification(
+                activity_id=activity.id,
+                notified_party_org_id=None,
+                notified_user_id=creator.id,
+                notification_timestamp=now,
+                response_deadline_timestamp=now,
+                notification_hash=EventNotification.compute_hash(
+                    activity_id=activity.id,
+                    notified_user_id=creator.id,
+                    notification_timestamp=now,
+                    response_deadline_timestamp=now,
+                    delivery_channel=DeliveryChannel.IN_APP,
+                    demo_watermark=False,
+                ),
+                delivery_channel=DeliveryChannel.IN_APP,
+                demo_watermark=False,
+            )
+            session.add(notif)
+            await session.flush()
+
+            resp = EventResponse(
+                notification_id=notif.id,
+                responder_user_id=creator.id,
+                response_type=ResponseType.COMMENTED,
+                response_timestamp=now,
+                response_comment="noted",
+                response_hash=EventResponse.compute_hash(
+                    notification_id=notif.id,
+                    responder_user_id=creator.id,
+                    response_type=ResponseType.COMMENTED,
+                    response_timestamp=now,
+                    response_comment="noted",
+                    demo_watermark=False,
+                ),
+                demo_watermark=False,
+            )
+            session.add(resp)
+            await session.flush()
+
+            ledg = EventStatusLedger(
+                activity_id=activity.id,
+                derived_status=DerivedStatus.SEEN,
+                computed_at=now,
+                computation_basis_hash=EventStatusLedger.compute_basis_hash(
+                    activity.activity_hash, "SEEN", notif.notification_hash, resp.response_hash
+                ),
+            )
+            session.add(ledg)
+            await session.flush()
+
+            # UPDATE should be blocked
+            activity.occurred_at = datetime.now(timezone.utc)
+            with pytest.raises(DBAPIError):
+                await session.flush()
+        finally:
+            await session.rollback()
+
+    async with AsyncSessionLocal() as session:
+        await session.begin()
+        try:
+            # Create minimal records again to test DELETE block
+            contractor_role = await _get_or_create_role(session, RoleName.CONTRACTOR)
+            supplier_role = await _get_or_create_role(session, RoleName.SUPPLIER)
+            creator = await _create_user(session, role=contractor_role, email_prefix="creator")
+            supplier = await _create_user(session, role=supplier_role, email_prefix="supplier")
+            project = Project(
+                name=f"Ack Test Project {uuid.uuid4()}",
+                status=ProjectStatus.ACTIVE,
+                lat=1.0,
+                lon=1.0,
+                budget_usd=1000.0,
+                created_by=creator.id,
+            )
+            session.add(project)
+            await session.flush()
+            token = MaterialToken(
+                project_id=project.id,
+                material_code="CEM",
+                material_name="Cement",
+                quantity=1.0,
+                unit="t",
+                supplier_name="Test Supplier",
+                supplier_id=None,
+                issued_by=creator.email,
+                redeemed=False,
+            )
+            session.add(token)
+            await session.flush()
+            now = datetime.now(timezone.utc)
+            activity = ActivityRecord(
+                activity_type=ActivityType.MATERIAL_TOKEN_REDEEMED,
+                project_id=project.id,
+                material_token_id=token.id,
+                delivery_verification_id=None,
+                mrv_report_id=None,
+                occurred_at=now,
+                created_by_user_id=supplier.id,
+                activity_hash=ActivityRecord.compute_hash(
+                    activity_type=ActivityType.MATERIAL_TOKEN_REDEEMED,
+                    project_id=project.id,
+                    occurred_at=now,
+                    material_token_id=token.id,
+                    delivery_verification_id=None,
+                    mrv_report_id=None,
+                    created_by_user_id=supplier.id,
+                ),
+            )
+            session.add(activity)
+            await session.flush()
+
+            await session.delete(activity)
+            with pytest.raises(DBAPIError):
+                await session.flush()
         finally:
             await session.rollback()
 

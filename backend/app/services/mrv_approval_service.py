@@ -1,5 +1,6 @@
 """MRV approval service: enforce immutable-after-approval workflow."""
 
+import logging
 from fastapi import HTTPException
 from starlette import status
 from uuid import UUID
@@ -9,8 +10,17 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.models.mrv_report import MRVReport, MRVStatus
 from app.models.role import RoleName
+from app.models.user import User
 from app.schemas.mrv_approval import MRVReportCreate
 from app.services.audit_log_service import write_audit_log
+from app.services.acknowledgement_service import (
+    create_activity_for_mrv_report_created,
+    notify_activity,
+)
+from app.models.event_notification import DeliveryChannel
+
+
+logger = logging.getLogger(__name__)
 
 
 async def create_mrv_report(
@@ -84,6 +94,29 @@ async def create_mrv_report(
             "status": "DRAFT",
         },
     )
+
+    # Contemporaneous acknowledgement record + notification (does not change MRV lifecycle).
+    try:
+        activity = await create_activity_for_mrv_report_created(
+            db,
+            report=report,
+            actor_user_id=payload.created_by,
+            occurred_at=report.created_at,
+        )
+
+        actor_user = await db.get(User, payload.created_by)
+        if actor_user is not None:
+            await notify_activity(
+                db,
+                activity_id=activity.id,
+                requested_notified_user_id=None,
+                delivery_channel=DeliveryChannel.IN_APP,
+                response_window_hours=None,
+                actor=actor_user,
+            )
+    except Exception:
+        # Acknowledgement layer must never block MRV report creation.
+        logger.exception("Acknowledgement layer failed during MRV report creation")
 
     return report
 

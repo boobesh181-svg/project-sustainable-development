@@ -20,6 +20,10 @@ from app.models.audit_log import AuditLog
 from app.models.emission_factor import EmissionFactor
 from app.models.evidence import Evidence
 from app.models.mrv_report import MRVReport, MRVStatus
+from app.models.activity_record import ActivityRecord
+from app.models.event_notification import EventNotification
+from app.models.event_response import EventResponse
+from app.models.event_status_ledger import EventStatusLedger
 
 
 @dataclass(frozen=True)
@@ -115,6 +119,79 @@ async def build_mrv_report_export_payload(db: AsyncSession, report_id: UUID) -> 
         .scalars()
         .all()
     )
+
+    cutoff = report.updated_at
+
+    # Acknowledgement layer snapshot: deterministic by bounding to report.updated_at.
+    activity_rows = list(
+        (
+            await db.execute(
+                select(ActivityRecord)
+                .where(
+                    ActivityRecord.project_id == report.project_id,
+                    ActivityRecord.occurred_at <= cutoff,
+                )
+                .order_by(ActivityRecord.occurred_at.asc(), ActivityRecord.id.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    activity_ids = [a.id for a in activity_rows]
+    notif_rows: list[EventNotification] = []
+    resp_rows: list[EventResponse] = []
+    status_rows: list[EventStatusLedger] = []
+    if activity_ids:
+        notif_rows = list(
+            (
+                await db.execute(
+                    select(EventNotification)
+                    .where(
+                        EventNotification.activity_id.in_(activity_ids),
+                        EventNotification.notification_timestamp <= cutoff,
+                    )
+                    .order_by(
+                        EventNotification.notification_timestamp.asc(),
+                        EventNotification.id.asc(),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        notif_ids = [n.id for n in notif_rows]
+        if notif_ids:
+            resp_rows = list(
+                (
+                    await db.execute(
+                        select(EventResponse)
+                        .where(
+                            EventResponse.notification_id.in_(notif_ids),
+                            EventResponse.response_timestamp <= cutoff,
+                        )
+                        .order_by(EventResponse.response_timestamp.asc(), EventResponse.id.asc())
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        status_rows = list(
+            (
+                await db.execute(
+                    select(EventStatusLedger)
+                    .where(
+                        EventStatusLedger.activity_id.in_(activity_ids),
+                        EventStatusLedger.computed_at <= cutoff,
+                    )
+                    .order_by(EventStatusLedger.computed_at.asc(), EventStatusLedger.id.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
 
     pilot_mode = bool(getattr(report, "pilot", False) or getattr(getattr(report, "project", None), "pilot", False))
     demo_mode = bool(settings.DEMO_MODE)
@@ -231,6 +308,63 @@ async def build_mrv_report_export_payload(db: AsyncSession, report_id: UUID) -> 
             }
             for ev in evidence_rows
         ],
+        "acknowledgements": {
+            "cutoff": cutoff.replace(microsecond=0).isoformat(),
+            "activity_records": [
+                {
+                    "id": str(a.id),
+                    "activity_type": a.activity_type.value,
+                    "project_id": str(a.project_id),
+                    "material_token_id": str(a.material_token_id) if a.material_token_id else None,
+                    "delivery_verification_id": str(a.delivery_verification_id)
+                    if a.delivery_verification_id
+                    else None,
+                    "mrv_report_id": str(a.mrv_report_id) if a.mrv_report_id else None,
+                    "occurred_at": a.occurred_at,
+                    "created_by_user_id": str(a.created_by_user_id) if a.created_by_user_id else None,
+                    "activity_hash": a.activity_hash,
+                    "created_at": a.created_at,
+                }
+                for a in activity_rows
+            ],
+            "notifications": [
+                {
+                    "id": str(n.id),
+                    "activity_id": str(n.activity_id),
+                    "notified_user_id": str(n.notified_user_id),
+                    "notification_timestamp": n.notification_timestamp,
+                    "response_deadline_timestamp": n.response_deadline_timestamp,
+                    "notification_hash": n.notification_hash,
+                    "delivery_channel": n.delivery_channel.value,
+                    "demo_watermark": bool(n.demo_watermark),
+                    "created_at": n.created_at,
+                }
+                for n in notif_rows
+            ],
+            "responses": [
+                {
+                    "id": str(r.id),
+                    "notification_id": str(r.notification_id),
+                    "responder_user_id": str(r.responder_user_id),
+                    "response_type": r.response_type.value,
+                    "response_timestamp": r.response_timestamp,
+                    "response_comment": r.response_comment,
+                    "response_hash": r.response_hash,
+                    "demo_watermark": bool(r.demo_watermark),
+                }
+                for r in resp_rows
+            ],
+            "derived_status_ledger": [
+                {
+                    "id": str(s.id),
+                    "activity_id": str(s.activity_id),
+                    "derived_status": s.derived_status.value,
+                    "computed_at": s.computed_at,
+                    "computation_basis_hash": s.computation_basis_hash,
+                }
+                for s in status_rows
+            ],
+        },
     }
 
     return payload
