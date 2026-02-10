@@ -16,6 +16,7 @@ from app.models.emission_factor import EmissionFactor
 from app.models.material_token import MaterialToken
 from app.models.mrv_report import MRVReport
 from app.models.sensor_reading import SensorReading, SensorType
+from app.services.mrv_calculation_service import authoritative_report_total_co2e
 from app.models.methodology_version import MethodologyVersion
 from app.models.reporting_context import ConsolidationMethod, ReportingContext
 from app.models.organization_relationship import OrganizationRelationship, OrganizationRoleType
@@ -263,6 +264,7 @@ async def _fetch_activities(
 
     for r in (await db.execute(mr_stmt)).scalars().all():
         operator_org = await _operator_org_for_project_at(db, project_id=project_id, ts=r.created_at)
+        total, _used_snapshot = authoritative_report_total_co2e(r)
         activities.append(
             EmissionActivity(
                 source_type="mrv_report",
@@ -274,7 +276,7 @@ async def _fetch_activities(
                 material_code=None,
                 quantity=None,
                 unit=None,
-                measured_emissions_tco2e=Decimal(str(r.total_co2e)),
+                measured_emissions_tco2e=Decimal(str(total)),
             )
         )
 

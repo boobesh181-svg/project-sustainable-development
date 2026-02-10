@@ -12,6 +12,7 @@ from app.models.anomaly_alert import AnomalyAlert
 from app.models.mrv_report import MRVReport, MRVStatus
 from app.models.project import Project
 from app.schemas.public import PublicEmissionsTrendPoint, PublicMetricsResponse
+from app.services.mrv_calculation_service import authoritative_report_total_co2e
 
 
 _CACHE_TTL_SECONDS = 30
@@ -87,19 +88,28 @@ async def get_public_metrics(db: AsyncSession) -> PublicMetricsResponse:
         end_month = _month_start(now)
 
         authoritative_statuses = [MRVStatus.APPROVED, MRVStatus.LOCKED]
-        rows = (
-            await db.execute(
-                select(
-                    func.date_trunc("month", MRVReport.created_at).label("m"),
-                    func.coalesce(func.sum(MRVReport.total_co2e), 0).label("v"),
+        reports = list(
+            (
+                await db.execute(
+                    select(MRVReport)
+                    .where(
+                        MRVReport.created_at >= start_12,
+                        MRVReport.status.in_(authoritative_statuses),
+                    )
+                    .order_by(MRVReport.created_at.asc(), MRVReport.id.asc())
                 )
-                .where(MRVReport.created_at >= start_12, MRVReport.status.in_(authoritative_statuses))
-                .group_by("m")
-                .order_by("m")
             )
-        ).all()
+            .scalars()
+            .all()
+        )
 
-        by_month = {_month_key(r.m): _to_float(r.v) for r in rows}
+        by_month_d: dict[str, Decimal] = {}
+        for r in reports:
+            total, _used_snapshot = authoritative_report_total_co2e(r)
+            key = _month_key(r.created_at)
+            by_month_d[key] = (by_month_d.get(key, Decimal("0")) + total)
+
+        by_month = {k: _to_float(v) for k, v in by_month_d.items()}
 
         trend: list[PublicEmissionsTrendPoint] = []
         cur = start_12

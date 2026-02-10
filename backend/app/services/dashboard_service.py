@@ -13,6 +13,7 @@ from app.models.sensor_reading import SensorReading, SensorType
 from app.models.mrv_report import MRVReport
 from app.models.anomaly_alert import AnomalyAlert
 from app.models.whistleblower import Whistleblower, WhistleblowerStatus
+from app.services.mrv_calculation_service import authoritative_report_total_co2e
 from app.schemas.kpi import (
     DashboardSummary,
     DashboardCharts,
@@ -399,11 +400,22 @@ async def get_comprehensive_kpis(db: AsyncSession) -> dict:
 
     # Total CO₂ reported (only APPROVED + LOCKED)
     approved_locked_statuses = [MRVStatus.APPROVED, MRVStatus.LOCKED]
-    total_co2_q = await db.execute(
-        select(func.coalesce(func.sum(MRVReport.total_co2e), 0))
-        .where(MRVReport.status.in_(approved_locked_statuses))
+    approved_locked_reports = list(
+        (
+            await db.execute(
+                select(MRVReport)
+                .where(MRVReport.status.in_(approved_locked_statuses))
+                .order_by(MRVReport.created_at.asc(), MRVReport.id.asc())
+            )
+        )
+        .scalars()
+        .all()
     )
-    total_co2_tco2e = float(total_co2_q.scalar_one() or 0)
+    total_co2_d = Decimal("0")
+    for r in approved_locked_reports:
+        total, _used_snapshot = authoritative_report_total_co2e(r)
+        total_co2_d += total
+    total_co2_tco2e = float(total_co2_d)
 
     # Anomalies (by severity)
     from app.models.anomaly_alert import AnomalySeverity

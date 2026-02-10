@@ -25,6 +25,7 @@ from app.schemas.kpi import (
     MaterialMixSlice,
     SupplierScatterPoint,
 )
+from app.services.mrv_calculation_service import authoritative_report_total_co2e
 
 
 def _to_float(value: float | int | Decimal | None) -> float:
@@ -74,15 +75,22 @@ async def get_dashboard_summary(db: AsyncSession) -> DashboardSummary:
 
     # Embodied CO2 estimate from MRV reports (approved+locked are authoritative)
     embodied_statuses = [MRVStatus.APPROVED, MRVStatus.LOCKED]
-    estimated_embodied_co2_t = _to_float(
+    embodied_reports = list(
         (
             await db.execute(
-                select(func.coalesce(func.sum(MRVReport.total_co2e), 0)).where(
-                    MRVReport.status.in_(embodied_statuses)
-                )
+                select(MRVReport)
+                .where(MRVReport.status.in_(embodied_statuses))
+                .order_by(MRVReport.created_at.asc(), MRVReport.id.asc())
             )
-        ).scalar_one()
+        )
+        .scalars()
+        .all()
     )
+    estimated_embodied_d = Decimal("0")
+    for r in embodied_reports:
+        total, _used_snapshot = authoritative_report_total_co2e(r)
+        estimated_embodied_d += total
+    estimated_embodied_co2_t = _to_float(estimated_embodied_d)
 
     # Operational CO2 (yearly) from energy sensors, using grid factor
     one_year_ago = datetime.now(timezone.utc) - timedelta(days=365)
@@ -197,18 +205,26 @@ async def get_dashboard_charts(db: AsyncSession) -> DashboardCharts:
     start_12 = _month_start(now - timedelta(days=365))
 
     embodied_statuses = [MRVStatus.APPROVED, MRVStatus.LOCKED]
-    embodied_rows = (
-        await db.execute(
-            select(
-                func.date_trunc("month", MRVReport.created_at).label("m"),
-                func.coalesce(func.sum(MRVReport.total_co2e), 0).label("v"),
+    embodied_reports = list(
+        (
+            await db.execute(
+                select(MRVReport)
+                .where(
+                    MRVReport.created_at >= start_12,
+                    MRVReport.status.in_(embodied_statuses),
+                )
+                .order_by(MRVReport.created_at.asc(), MRVReport.id.asc())
             )
-            .where(MRVReport.created_at >= start_12, MRVReport.status.in_(embodied_statuses))
-            .group_by("m")
-            .order_by("m")
         )
-    ).all()
-    embodied_by_month = {_month_key(r.m): _to_float(r.v) for r in embodied_rows}
+        .scalars()
+        .all()
+    )
+    embodied_by_month_d: dict[str, Decimal] = {}
+    for r in embodied_reports:
+        total, _used_snapshot = authoritative_report_total_co2e(r)
+        key = _month_key(r.created_at)
+        embodied_by_month_d[key] = embodied_by_month_d.get(key, Decimal("0")) + total
+    embodied_by_month = {k: _to_float(v) for k, v in embodied_by_month_d.items()}
 
     operational_rows = (
         await db.execute(
@@ -328,29 +344,34 @@ async def get_dashboard_charts(db: AsyncSession) -> DashboardCharts:
     ]
 
     # ---- CO2 vs cost scatter (project budget + approved/locked CO2 totals) ----
-    co2_cost_rows = (
-        await db.execute(
-            select(
-                Project.name,
-                func.coalesce(func.sum(MRVReport.total_co2e), 0),
-                func.coalesce(Project.budget_usd, 0),
-            )
-            .join(MRVReport, MRVReport.project_id == Project.id, isouter=True)
-            .where(
-                (MRVReport.status.is_(None))
-                | (MRVReport.status.in_(embodied_statuses))
-            )
-            .group_by(Project.id)
-        )
+    projects = (
+        await db.execute(select(Project.id, Project.name, func.coalesce(Project.budget_usd, 0)))
     ).all()
+
+    reports = list(
+        (
+            await db.execute(
+                select(MRVReport)
+                .where(MRVReport.status.in_(embodied_statuses))
+                .order_by(MRVReport.created_at.asc(), MRVReport.id.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    totals_by_project: dict[str, Decimal] = {}
+    for r in reports:
+        total, _used_snapshot = authoritative_report_total_co2e(r)
+        pid = str(r.project_id)
+        totals_by_project[pid] = totals_by_project.get(pid, Decimal("0")) + total
 
     co2_cost_scatter = [
         Co2CostPoint(
-            project_name=name,
-            co2_t=_to_float(co2_t),
+            project_name=str(name),
+            co2_t=_to_float(totals_by_project.get(str(pid), Decimal("0"))),
             cost_usd=_to_float(budget),
         )
-        for name, co2_t, budget in co2_cost_rows
+        for pid, name, budget in projects
     ]
 
     return DashboardCharts(

@@ -1,6 +1,7 @@
 """MRV approval service: enforce immutable-after-approval workflow."""
 
 import logging
+from decimal import Decimal
 from fastapi import HTTPException
 from starlette import status
 from uuid import UUID
@@ -15,9 +16,11 @@ from app.schemas.mrv_approval import MRVReportCreate
 from app.services.audit_log_service import write_audit_log
 from app.services.acknowledgement_service import (
     create_activity_for_mrv_report_created,
+    get_acknowledgement_status,
     notify_activity,
 )
 from app.models.event_notification import DeliveryChannel
+from app.services.mrv_calculation_service import authoritative_report_total_co2e
 
 
 logger = logging.getLogger(__name__)
@@ -64,6 +67,8 @@ async def create_mrv_report(
         sample_desc=payload.sample_desc,
         parameter=payload.parameter,
         value=payload.value,
+        # total_co2e is derived from snapshot inputs when available; payload value is accepted
+        # for backward compatibility but is not authoritative if a snapshot exists.
         total_co2e=payload.total_co2e,
         created_by=payload.created_by,
         emission_factor_id=payload.emission_factor_id,
@@ -74,6 +79,15 @@ async def create_mrv_report(
         emission_factor_hash_snapshot=emission_factor_snapshot["hash"] if emission_factor_snapshot else None,
         emission_factor_value_snapshot=emission_factor_snapshot["value"] if emission_factor_snapshot else None,
     )
+
+    # If snapshot inputs exist, deterministically derive total_co2e from them.
+    try:
+        derived_total, used_snapshot = authoritative_report_total_co2e(report)
+        if used_snapshot:
+            report.total_co2e = derived_total
+    except Exception:
+        # Never fail creation due to calculation mismatch; snapshot is already captured.
+        logger.exception("Failed to derive MRV total_co2e from snapshot; using provided total")
 
     db.add(report)
     await db.commit()
@@ -90,7 +104,7 @@ async def create_mrv_report(
         event_payload={
             "project_id": str(payload.project_id),
             "reporting_period": payload.reporting_period,
-            "total_co2e": float(payload.total_co2e),
+            "total_co2e": float(Decimal(str(report.total_co2e))),
             "status": "DRAFT",
         },
     )
@@ -189,6 +203,66 @@ async def advance_mrv_status(
             raise ValueError("Only MRV officers can verify (SUBMITTED → VERIFIED)")
         if actor == report.created_by:
             raise ValueError("Separation of duties violated: verifier cannot be creator")
+
+        # Acknowledgement gate: do not verify unless the MRV_REPORT_CREATED activity is ACKNOWLEDGED
+        # or DEEMED_OBSERVED.
+        from app.models.activity_record import ActivityRecord, ActivityType
+
+        activity = (
+            (
+                await db.execute(
+                    select(ActivityRecord)
+                    .where(
+                        ActivityRecord.activity_type == ActivityType.MRV_REPORT_CREATED,
+                        ActivityRecord.mrv_report_id == report.id,
+                    )
+                    .order_by(ActivityRecord.occurred_at.asc())
+                    .limit(1)
+                )
+            )
+            .scalars()
+            .first()
+        )
+
+        if activity is None:
+            # Best-effort backfill for legacy reports created before acknowledgements were wired.
+            try:
+                activity = await create_activity_for_mrv_report_created(
+                    db,
+                    report=report,
+                    actor_user_id=report.created_by,
+                    occurred_at=report.created_at,
+                )
+                actor_user = await db.get(User, actor)
+                if actor_user is not None:
+                    await notify_activity(
+                        db,
+                        activity_id=activity.id,
+                        requested_notified_user_id=None,
+                        delivery_channel=DeliveryChannel.IN_APP,
+                        response_window_hours=None,
+                        actor=actor_user,
+                    )
+            except Exception:
+                logger.exception("Failed to backfill acknowledgement activity/notification for MRV report")
+
+        if activity is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot verify MRV report: acknowledgement activity record missing",
+            )
+
+        from app.models.event_status_ledger import DerivedStatus
+
+        derived_status, _computed_at = await get_acknowledgement_status(db, activity_id=activity.id)
+        if derived_status not in (DerivedStatus.ACKNOWLEDGED, DerivedStatus.DEEMED_OBSERVED):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Cannot verify MRV report until related activity is ACKNOWLEDGED or DEEMED_OBSERVED; "
+                    f"current derived_status={derived_status.value}"
+                ),
+            )
 
     # VERIFIED -> APPROVED: admin approves, must differ from creator and verifier
     if target_status == MRVStatus.APPROVED:

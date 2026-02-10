@@ -29,7 +29,7 @@ The canonical constitution for this app lives in `SYSTEM_RULES.md` at repo root.
 ### Backend Structure (`/backend/app`)
 
 ```
-app/
+backend/app/
   api/v1/
     auth.py, users.py, projects.py, mrv.py, anomalies.py, dashboard.py, upload.py
   models/

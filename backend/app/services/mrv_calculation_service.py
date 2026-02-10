@@ -4,6 +4,10 @@ Key guarantees:
 - Never read live emission factors or mutable lookup tables.
 - Use only the snapshotted factor fields stored on MRV reports.
 - Deterministic outputs via Decimal math; no floating-point drift.
+
+Important:
+- This module intentionally avoids depending on MRVReport.total_co2e as the source of truth.
+    When snapshot inputs exist, totals are re-derived from (value × snapshotted factor).
 """
 
 from __future__ import annotations
@@ -60,12 +64,34 @@ def calculate_report_co2(report: MRVReport) -> dict:
     return {
         "report_id": str(report.id),
         "co2e": co2e,
-        "co2e_unit": "kg_co2e",  # assumed unit for factor snapshot
+        "co2e_unit": "kg_co2e",  # emission_factor.co2e_per_unit is defined as kg CO2e per unit
         "factor_version": factor_version,
         "factor_hash": factor_hash,
         "factor_value": factor_value.quantize(Q, rounding=ROUND_HALF_UP),
         "input_value": measurement.quantize(Q, rounding=ROUND_HALF_UP),
     }
+
+
+def authoritative_report_total_co2e(report: MRVReport) -> tuple[Decimal, bool]:
+    """Return the authoritative report CO2e total.
+
+    If snapshot inputs exist, derive the total deterministically from the snapshot.
+    Otherwise, fall back to the stored total (legacy / non-snapshotted reports).
+
+    Returns:
+        (total_co2e, used_snapshot)
+    """
+
+    if (
+        report.emission_factor_value_snapshot is not None
+        and report.emission_factor_version_snapshot is not None
+        and report.emission_factor_hash_snapshot is not None
+    ):
+        result = calculate_report_co2(report)
+        return (Decimal(str(result["co2e"])).quantize(Q, rounding=ROUND_HALF_UP), True)
+
+    # Legacy fallback: preserve behavior but mark as non-snapshot.
+    return (Decimal(str(report.total_co2e)).quantize(Q, rounding=ROUND_HALF_UP), False)
 
 
 def aggregate_reports_co2(reports: Iterable[MRVReport]) -> dict:
@@ -77,9 +103,16 @@ def aggregate_reports_co2(reports: Iterable[MRVReport]) -> dict:
     total = Decimal("0")
 
     for report in reports:
-        result = calculate_report_co2(report)
-        total += result["co2e"]
-        breakdown.append(result)
+        co2e, used_snapshot = authoritative_report_total_co2e(report)
+        total += co2e
+        breakdown.append(
+            {
+                "report_id": str(report.id),
+                "co2e": co2e,
+                "co2e_unit": "kg_co2e",
+                "used_snapshot": used_snapshot,
+            }
+        )
 
     total = total.quantize(Q, rounding=ROUND_HALF_UP)
 
